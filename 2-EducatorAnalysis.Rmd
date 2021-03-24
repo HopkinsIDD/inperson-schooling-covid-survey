@@ -29,10 +29,13 @@ output: html_document
 
 ```
 
+```{r warning-message}
+
+  knitr::knit_exit("WARNING: This document will prepare tables and figures exploring the effects of occupation and work outside the home using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
+
+```
+
 ```{r full-data-load}
-
-  stop("WARNING: This document will prepare tables and figures exploring the effects of occupation and work outside the home using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
-
   df_ws <- readRDS("data/DATA_FOR_TESTING_ONLY_DOES_NOT_REPRODUCE_RESULTS_df_full_ext.rds")
   
   # recode, without dropping HH with only 1 individual
