@@ -1,0 +1,2067 @@
+---
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(echo=FALSE, message = FALSE, warning = FALSE, error=TRUE)
+
+```
+
+```{r loading_pkgs}
+  ##Source code and library stuff
+  library(tidyverse)
+  library(anytime)
+  library(survey)
+  library(srvyr)
+  library(maps)
+  library(R.utils)
+  library(data.table)
+  library(extrafont)
+  library(viridis)
+  library(gtsummary)
+  library(janitor)
+  library(pheatmap)
+  library(RColorBrewer)
+
+  source("HelperFuncs.R")
+  source("MainTextFigures.R")
+
+```
+
+```{r recode}
+
+  stop("WARNING: This document will prepare tables and figures exploring the effects of in-person schooling using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
+
+  df <- readRDS( "data/DATA_FOR_TESTING_ONLY_DOES_NOT_REPRODUCE_RESULTS_df_k12_ext.rds")
+  
+  df <- standard_recode(df)
+```
+
+```{r merge_case_data}
+  csse <- read_csv("data/JHUCSSE.csv")
+  
+  df <- merge_csse(df,csse)
+  
+  rm(csse)
+```
+
+```{r merge-county-data}
+  cnty_dat<- read_csv("data/county_factors.csv")%>%
+    mutate(fips=str_pad(FIPS,width=5,pad="0"))%>%
+    select(-FIPS, -X1)
+  
+  df <- left_join(df, cnty_dat)
+  
+  rm(cnty_dat)
+```
+
+```{r single_grade_df}
+  ## Set up the single grade data frame
+  ## This filters for respondents who report a child in
+  ## only one of the available grade classes (PreK-K, 1-5, 6-8, 9-12)
+  
+  single_grade_df<- df%>% mutate(Pre_K=Pre_K=="Yes",
+            Grades_15=Grades_15=="Yes",
+            Grades_68=Grades_68=="Yes",
+            Grades_912=Grades_912=="Yes")%>%
+    mutate(n_grades = rowSums(select(.,Pre_K,Grades_15,Grades_68,Grades_912)))%>%
+    filter(n_grades==1)%>%
+    pivot_longer(c(Pre_K,Grades_15,Grades_68,Grades_912),
+                 values_to = "InGrade",
+                 names_to = "Grade")%>%
+    filter(InGrade)
+```
+
+```{r inperson_df}
+  ## Set up the in-person schooling data frame
+  ## This filters for respondents who report at least one child 
+  ## engaged in some form of in-person schooling
+
+  inperson_df <- df%>% 
+    filter(Child_IP_any=="Yes")%>%
+    mutate(n_interventions=
+                 sch_maskMand_st+
+                 sch_maskMand_tch+
+                 sch_sameTch+
+                 sch_sameSt+
+                 sch_outdoorInstr+
+                 sch_restEntry+
+                 sch_redClassSize+
+                 sch_closedCafe+
+                 sch_closedPlay+
+                 sch_deskShields+
+                 sch_xdeskSpace+
+                 sch_noExtraCurr+
+                 sch_noShareSupp+ 
+                 sch_dailySymptScr)%>%
+    filter(n_interventions<=13)
+
+```
+
+# Main text figures
+
+## Figure 1
+
+```{r fig1, fig.cap=cap}
+  cap <- "Spatial distribution of survey responses. (A) Number of survey respondents reporting a school age student in the household by county. (B) Percentage of households with school age children reporting any in-person schooling by county, excluding counties with fewer than 10 responses (excluded counties in dark grey). (C) Percentage of households with a child in in-person schooling reporting full-time in-person schooling, excluding counties with fewer than 10 reporting in-person schooling, (D) Average number of school-based mitigation measures reported for children with in-person schooling, excluding counties with fewer than 10 reporting in-person schooling."
+
+  df%>%fig_1()
+
+```
+
+## Figure 2       
+
+```{r fig2, fig.cap=cap, fig.width=6, fig.height=10}
+
+  cap <- "Risk from in-person schooling and distribution of mitigation measures by grade. (A) Odds ratio of COVID-19-related outcomes associated with full- and part-time in-person schooling by outcome and grade level, compared to individuals with children in their household not attending in-person schooling and adjusted for individual- and county-level covariates (but not number of mitigation measures) indicating that the strength of the association increases with grade level. (B) Distribution of mitigation measures by grade level and full- versus part-time in-person status across all grades."
+
+  ## creating object for output
+  ip_regs_all <- NULL
+
+  ## setting up outcomes to explore
+  outcomes <- c("tst2","cli","cli2")
+  
+  for(outcome in outcomes) {
+    ##Overall
+    ip_regs_all <-  pos_regs(df, outcome, as_df=TRUE)%>%
+      mutate(Grade="overall")%>%
+      bind_rows(ip_regs_all)
+  
+    ##Loop over grades doing regrssions among each
+    grades<- c("Pre_K","Grades_15","Grades_68","Grades_912")
+    grade_names <- c("K or under", "1 to 5", "6 to 8", 
+                                    "9 to 12")
+    for (i in 1:length(grades)) {  
+      ip_regs_all <- single_grade_df %>%
+        filter(Grade==grades[i])%>%
+        pos_regs( outcome, as_df=TRUE)%>%
+        mutate(Grade=grade_names[i])%>%
+        bind_rows(ip_regs_all)
+    }
+  }
+
+  fig_2(df,ip_regs_all)
+  
+```
+
+## Table S4: 
+
+Adjusted and unadjusted odds ratio (OR) of COVID-19 among those engaged in full- and part-time in-person schooling versus those engaged in virtual or homeschooling outcomes. All analyses adjust for survey weights. See methods for adjustment factors.
+
+```{r tableS4}
+
+  tbl_dat2 <- ip_regs_all%>%
+  filter(str_detect(variable,"Child_"))%>%
+  select(Grade, outcome, adjusted, label, estimate, conf.low, conf.high)%>%
+  pivot_wider(names_from=c(adjusted, outcome), values_from=c(estimate,conf.low,conf.high)) 
+
+
+  ip_regs_disp_tbl2 <- tbl_dat2%>%
+    mutate(label =recode(label,
+                  Child_IP_full_bin="Full time in person",
+                  Child_IP_part_bin="Part time in person"))%>%
+    mutate(Grade=ifelse(Grade=="overall", "Overall",
+                        sprintf ("Grades %s", Grade)))%>%
+    group_by(Grade)%>%
+    reg_tbl_wrangle()
+
+  ip_regs_disp_tbl2
+  
+```
+
+
+## Figure 3
+```{r fig3, fig.cap=cap, fig.width=8, fig.height=8}
+
+  cap <- "Impact of individual mitigation measures. (A) Relationship between number of mitigation measures and percent reporting COVID-19-related outcomes using a log-linear (solid) and spline (dashed) model. (B) Odds ratio of COVID-19-related outcomes by mitigation measure in multivariable model including all measures, versus the reduction due to a generic mitigation measure (dotted line)."
+
+  # regression for test positive outcome
+  inter_reg_tst <- inperson_df%>%survey_reg(tst_pos~
+                        sch_maskMand_st+
+                          sch_maskMand_tch+
+                          sch_sameTch+
+                          sch_sameSt+
+                          sch_outdoorInstr+
+                          sch_restEntry+
+                          sch_redClassSize+
+                          sch_closedCafe+
+                          sch_closedPlay+
+                          sch_deskShields+
+                          sch_xdeskSpace+
+                          sch_noExtraCurr+
+                          sch_noShareSupp+
+                          sch_dailySymptScr+
+                        Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+  # regression for COVID like illness
+  inter_reg_cli <- inperson_df%>%survey_reg(cli_pos~
+                        sch_maskMand_st+
+                          sch_maskMand_tch+
+                          sch_sameTch+
+                          sch_sameSt+
+                          sch_outdoorInstr+
+                          sch_restEntry+
+                          sch_redClassSize+
+                          sch_closedCafe+
+                          sch_closedPlay+
+                          sch_deskShields+
+                          sch_xdeskSpace+
+                          sch_noExtraCurr+
+                          sch_noShareSupp+
+                          sch_dailySymptScr+
+                        Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+  # regression for loss of taste/smell
+  inter_reg_cli2 <- inperson_df%>%survey_reg(cli2_pos~
+                        sch_maskMand_st+
+                          sch_maskMand_tch+
+                          sch_sameTch+
+                          sch_sameSt+
+                          sch_outdoorInstr+
+                          sch_restEntry+
+                          sch_redClassSize+
+                          sch_closedCafe+
+                          sch_closedPlay+
+                          sch_deskShields+
+                          sch_xdeskSpace+
+                          sch_noExtraCurr+
+                          sch_noShareSupp+
+                          sch_dailySymptScr+
+                        Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+  # combining + formatting regression outputs
+  inter_reg_tbl <- 
+    gtsummary::tbl_regression(inter_reg_tst,exponentiate=T)$table_body%>%
+    mutate(outcome="Overall Test+", adjustment="adjusted")
+  inter_reg_tbl <- 
+    gtsummary::tbl_regression(inter_reg_cli,exponentiate=T)$table_body%>%
+    mutate(outcome="COVID like illness", adjustment="adjusted")%>%
+    bind_rows(inter_reg_tbl)
+  inter_reg_tbl <- 
+    gtsummary::tbl_regression(inter_reg_cli2,exponentiate=T)$table_body%>%
+    mutate(outcome="Loss of taste/smell", adjustment="adjusted")%>%
+    bind_rows(inter_reg_tbl)
+  
+  fig_3(inperson_df, inter_reg_tbl, line_at=.92)
+
+```
+
+## Table S9
+
+The association between mitigation measures and the off-ratio of COVID-19-related outcomes in those engaged in in-person schooling compared to those engaged in virtual- or home-schooling. Adjusted form county and individual level covariates. 
+
+```{r tableS9}
+
+  # formatting output for table of mitigation measures effect
+  mit2_tbl_dat <- inter_reg_tbl %>% filter(str_detect(variable,"sch_")|
+                                            variable=="Child_IP_part_bin")%>%
+    mutate(adjusted=adjustment=="adjusted")%>%
+    select(outcome, adjusted, label, estimate, conf.low, conf.high)%>%
+    pivot_wider(names_from=c(adjusted, outcome), values_from=c(estimate,conf.low,conf.high))%>%
+    mutate(label=
+           recode(label,`sch_maskMand_st`="student mask mandate",
+                  `sch_maskMand_tch`="teacher mask mandate",
+                  `sch_sameTch`="same teacher all day",
+                  `sch_sameSt`="same students all day",
+                  `sch_outdoorInstr`="outdoor instruction",
+                  sch_restEntry="restricted entry",
+                  sch_redClassSize="reduced class size",
+                  sch_closedCafe="closed cafeteria",
+                  sch_closedPlay="closed playground",
+                  sch_deskShields="desk shields",
+                  sch_xdeskSpace="extra desk space",
+                  sch_noExtraCurr="no extracurriculars",
+                  sch_noShareSupp="no sharing supplies",
+                  sch_dailySymptScr="daily symptom screen",
+                  Child_IP_part_bin="partime in-person"))
+
+  mit2_regs_disp_tbl <- mit2_tbl_dat%>%
+    mutate(label =recode(label,
+                  n_interventions="N mitigation measures"))%>%
+        gt::gt()%>%
+        gt::fmt_number(
+          columns=starts_with("estimate"),
+          decimals=2
+        )%>%
+        gt::fmt_number(
+          columns=starts_with("conf"),
+          decimals=2
+        )%>%
+        gt::tab_spanner(
+          label=c("Test+"),
+          columns = ends_with("Test+")
+        )%>% 
+        gt::tab_spanner(
+          label=c("COVID like illness"),
+          columns = ends_with("COVID like illness")
+        )%>%
+        gt::tab_spanner(
+          label=c("Loss of taste/smell"),
+          columns = ends_with("taste/smell")
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_Loss of taste/smell`),
+          col_end=vars(`conf.high_TRUE_Loss of taste/smell`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_Overall Test+`),
+          col_end=vars(`conf.high_TRUE_Overall Test+`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_COVID like illness`),
+          col_end=vars(`conf.high_TRUE_COVID like illness`)
+        )%>%
+        gt::cols_label(
+          `conf.low_TRUE_Loss of taste/smell`="95% CI",
+          `conf.low_TRUE_Overall Test+`="95% CI",
+          `conf.low_TRUE_COVID like illness`="95% CI",
+          `estimate_TRUE_Loss of taste/smell`="adj. OR",
+          `estimate_TRUE_Overall Test+`="adj OR",
+          `estimate_TRUE_COVID like illness`="adj OR",
+          label="Mitigatoin"
+        )%>%
+        gt::tab_options(
+          row_group.font.weight   = "lighter",
+          column_labels.font.weight = "bold"
+        )
+
+  mit2_regs_disp_tbl
+  
+```
+
+## Figure 4
+
+```{r fig4, fig.cap=cap, fig.width=8, fig.height=8}
+
+  cap <- "Risk of in-person schooling by strata of number of reported mitigation measures. (A) Estimated risk associated with full- and part-time in-person schooling by outcome and number of mitigation measures implemented, adjusted for individual and county-level covariates. (B) Distribution of mitigation measures by total number of measures implemented."
+
+  # creating df with number of interventions
+  df_mit <- df%>% 
+    mutate(n_interventions=
+                  sch_maskMand_st+
+                  sch_maskMand_tch+
+                 sch_sameTch+
+                 sch_sameSt+
+                 sch_outdoorInstr+
+                 sch_restEntry+
+                 sch_redClassSize+
+                 sch_closedCafe+
+                 sch_closedPlay+
+                 sch_deskShields+
+                 sch_xdeskSpace+
+                 sch_noExtraCurr+
+                 sch_noShareSupp+ 
+                 sch_dailySymptScr)%>%
+    filter(n_interventions<=13 | Child_IP_any=="No")
+  
+  # setting up outcomes, strata to explore
+  outcomes <- c("tst2","cli","cli2")
+  strata_low <- c(-Inf,1,4,7,10)
+  strata_high <- c(0,3,6,9,Inf)
+  strata_names <-c("0","1-3","4-6","7-9","10+")
+  
+  mit_strata <- NULL
+  
+  for(outcome in outcomes) {
+    for(i in 1:length(strata_low)) {
+      mit_strata <- df_mit%>%
+        filter((n_interventions>=strata_low[i]&
+                  n_interventions<=strata_high[i])|
+                 Child_IP_any=="No")%>%
+        pos_regs(outcome, as_df=TRUE)%>%
+         mutate(n_interventions=strata_names[i])%>%
+        bind_rows(mit_strata)
+    }
+    
+  }
+  
+  fig_4(inperson_df, mit_strata)
+  
+```
+
+## Table S8:
+
+Association between risk of full-time schooling and number of mitigation measures implemented after accounting for survey design and adjusting for county and individual level covariates. 
+
+```{r tableS8-setup}
+
+  # setting up single grade df with number of interventions
+  sg_df_mit <- single_grade_df %>% 
+    mutate(n_interventions=
+                  sch_maskMand_st+
+                  sch_maskMand_tch+
+                 sch_sameTch+
+                 sch_sameSt+
+                 sch_outdoorInstr+
+                 sch_restEntry+
+                 sch_redClassSize+
+                 sch_closedCafe+
+                 sch_closedPlay+
+                 sch_deskShields+
+                 sch_xdeskSpace+
+                 sch_noExtraCurr+
+                 sch_noShareSupp+ 
+                 sch_dailySymptScr)%>%
+    filter(n_interventions<=13 | Child_IP_any=="No")
+
+  mit_regs_all <- NULL
+  outcomes <- c("tst2","cli","cli2")
+
+  # adjusted regressions for number of interventions
+  for(outcome in outcomes) {
+    ##Overall
+    mit_regs_all <-  pos_regs(df_mit, outcome, as_df=TRUE, n_mit = TRUE)%>%
+      mutate(Grade="overall")%>%
+      bind_rows(mit_regs_all)
+  
+    ##Loop over grades doing regrssions among each
+    grades<- c("Pre_K","Grades_15","Grades_68","Grades_912")
+    grade_names <- c("K or under", "1 to 5", "6 to 8", 
+                                    "9 to 12")
+    for (i in 1:length(grades)) {  
+      mit_regs_all <- sg_df_mit %>%
+        filter(Grade==grades[i])%>%
+        pos_regs( outcome, as_df=TRUE, n_mit=TRUE)%>%
+        mutate(Grade=grade_names[i])%>%
+        bind_rows(mit_regs_all)
+    }
+  }
+
+```
+
+```{r tableS8}
+
+  # formatting output for table of number of mitigation measures effect
+  mit_tbl_dat <- mit_regs_all %>% 
+    filter(str_detect(variable,"interventions"))%>%
+    select(Grade, outcome, adjusted, label, estimate, conf.low, conf.high)%>%
+    pivot_wider(names_from=c(adjusted, outcome), values_from=c(estimate,conf.low,conf.high)) 
+  
+  
+  mit_regs_disp_tbl <- mit_tbl_dat%>%
+    mutate(label =recode(label,
+                  n_interventions="N mitigation measures"))%>%
+    mutate(Grade=ifelse(Grade=="overall", "Overall",
+                        sprintf ("Grades %s", Grade)))%>%
+    group_by(Grade)%>%
+    reg_tbl_wrangle(inc_unadj = F)
+
+  mit_regs_disp_tbl
+  
+```
+
+
+## Figure 5
+```{r fig5-setup-ARs}
+
+  ## Cut attack rates into 10 equal strata and look at impact of full time within each.
+  df <- df%>%mutate(AR_strata = cut_number(avg_biwk_AR, n=5,
+                                           labels=sprintf("Q%d",1:5)))
+  AR_cats <- unique(df$AR_strata)
+  AR_cats <- AR_cats[!is.na(AR_cats)]
+  outcomes <- c("tst2","cli","cli2")
+  AR_res <- NULL
+
+  # loop across outcomes, attack rate categories
+  for(outcome in outcomes ) {
+    for(strata in AR_cats) {
+      AR_res <- df %>%
+        filter(AR_strata==strata)%>%
+        pos_regs( outcome, as_df=TRUE, cnty_cov = T)%>%
+        mutate(strata=strata)%>%
+        bind_rows(AR_res)
+    }
+    
+    AR_res <- df %>%
+        pos_regs( outcome, as_df=TRUE,cnty_cov = F)%>%
+        mutate(strata="All")%>%
+        bind_rows(AR_res)
+  }
+
+
+  # build output object for plotting by AR strata
+  tmp_dat <- AR_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                           strata=="All",
+                                           adjusted)
+  tmp_dat2 <- AR_res%>%filter(str_detect(variable, "Child_IP_part"),
+                                           strata=="All",
+                                           adjusted)
+  AR_plt <-AR_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                           strata!="All")%>%
+    ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+               color=outcome, shape=variable))+
+    geom_pointrange(position=position_dodge(width=.5))+
+    facet_grid(rows=vars(outcome))+
+    scale_y_log10()+
+    coord_cartesian(ylim=c(.5, 3))+
+        scale_color_brewer(type="qual", palette = "Dark2")+
+        theme_bw()+
+        theme(legend.position="bottom")+
+    geom_hline(yintercept = 1)+
+    geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+    geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+    labs(x="incidence strata", y="OR")+
+    theme(axis.text.x = element_text(angle=45, hjust = 1),
+          legend.position = "none")
+```
+
+```{r fig5-setup-metro}
+
+  ## Create categories for county metro type
+  df<- df%>%mutate(cnty_type = 
+                     recode(Description,
+                            `Metro - Counties in metro areas of 1 million population or more` = "metro 1M+",
+                            `Metro - Counties in metro areas of 250,000 to 1 million population`="metro 250k-1M",
+                            `Metro - Counties in metro areas of fewer than 250,000 population`="metro <250k",
+                            `Nonmetro - Urban population of 2,500 to 19,999, adjacent to a metro area` = "metro adj. <20k",
+                            `Nonmetro - Urban population of 20,000 or more, adjacent to a metro area` = "metro adj. 20k+",
+                            `Nonmetro - Completely rural or less than 2,500 urban population, not adjacent to a metro area` = "no metro <20k",
+                            `Nonmetro - Completely rural or less than 2,500 urban population, adjacent to a metro area` =  "metro adj. <20k",
+                            `Nonmetro - Urban population of 2,500 to 19,999, not adjacent to a metro area` = "no metro <20k",
+                            `Nonmetro - Urban population of 20,000 or more, not adjacent to a metro area` = "no metro 20k+"
+                                      ))%>%
+    mutate(cnty_type=factor(cnty_type, levels=c(
+      "no metro <20k",
+      "metro adj. <20k",
+      "no metro 20k+",
+      "metro adj. 20k+",
+      "metro <250k",
+      "metro 250k-1M",
+      "metro 1M+"
+    )))
+
+  cnty_types<- unique(drop_na(df, cnty_type)$cnty_type)
+  cnty_res <- NULL
+  
+  # loop across outcomes, county type categories
+  for(outcome in outcomes ) {
+    for(strata in cnty_types) {
+      cnty_res <- df %>%
+        filter(cnty_type==strata)%>%
+        pos_regs( outcome, as_df=TRUE, cnty_cov = F)%>%
+        mutate(strata=strata)%>%
+        bind_rows(cnty_res)
+    }
+    
+    cnty_res <- df %>%
+        pos_regs( outcome, as_df=TRUE,cnty_cov = F)%>%
+        mutate(strata="All")%>%
+        bind_rows(cnty_res)
+  }
+  
+  # build output object for plotting by county type
+  tmp_dat <- cnty_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                           strata=="All",
+                                           adjusted)
+  tmp_dat2 <- cnty_res%>%filter(str_detect(variable, "Child_IP_part"),
+                                           strata=="All",
+                                           adjusted)
+  cnty_plt <-cnty_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                               strata!="All")%>%
+    mutate(strata=factor(strata, levels=c(
+        "no metro <20k",
+        "metro adj. <20k",
+        "no metro 20k+",
+        "metro adj. 20k+",
+        "metro <250k",
+        "metro 250k-1M",
+        "metro 1M+"
+      )))%>%
+    ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+               color=outcome, shape=variable))+
+    geom_pointrange(position=position_dodge(width=.5))+
+    facet_grid(rows=vars(outcome))+
+    scale_y_log10()+
+    coord_cartesian(ylim=c(.5, 3))+
+        scale_color_brewer(type="qual", palette = "Dark2")+
+        theme_bw()+
+        theme(legend.position="bottom")+
+    geom_hline(yintercept = 1)+
+    geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+    geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+    labs(x="county type", y="OR")+
+    theme(axis.text.x = element_text(angle=45, hjust = 1),
+          legend.position="none")
+  
+```
+
+
+```{r create-prop-scores, eval=FALSE}
+  ## to save time, this section will not run
+  ## the df with propensity scores and full model output
+  ## are provided in the repository
+  ## change eval=TRUE if you wish to regenerate the propensity scores
+
+  # full model output
+  mdl_prop <- prop_to_inhome_model(df)
+  saveRDS(mdl_prop, "data/mdl_prop.rds")
+
+  # propensity scores only
+  df_prop <- prop_to_inhome(df)
+  saveRDS(df_prop, "data/DF_prop.rds")
+  
+```
+
+```{r figs5-setup-propensity}
+  
+  # setup propensity score strata
+  df_prop <- readRDS("data/DF_prop.rds")
+  df_prop <- df_prop%>%mutate(no_ip_prop_strata= cut_number(1-prop_no_ip, n=5,
+                                           labels=sprintf("Q%d",1:5)))
+  prop_strata<- unique(df_prop$no_ip_prop_strata)
+  
+  prop_res <- NULL
+
+  # loop across outcomes, propensity score categories
+  for(outcome in outcomes ) {
+    for(strata in prop_strata) {
+      prop_res <- df_prop %>%
+        filter(no_ip_prop_strata==strata)%>%
+        pos_regs( outcome, as_df=TRUE, cnty_cov = T)%>%
+        mutate(strata=strata)%>%
+        bind_rows(prop_res)
+    }
+    
+    prop_res <- df_prop %>%
+        pos_regs( outcome, as_df=TRUE,cnty_cov = T)%>%
+        mutate(strata="All")%>%
+        bind_rows(prop_res)
+  }
+
+
+  # build output object for plotting by propensity score quantile
+  tmp_dat <- prop_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                           strata=="All",
+                                           adjusted)
+  prop_plt <-prop_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                               strata!="All")%>%
+    ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+               color=outcome, shape=variable))+
+    geom_pointrange(position=position_dodge(width=.5))+
+    facet_grid(rows=vars(outcome))+
+    scale_y_log10()+
+      coord_cartesian(ylim=c(.5, 3))+
+        scale_color_brewer(type="qual", palette = "Dark2")+
+        theme_bw()+
+        theme(legend.position="bottom", legend.title=element_blank())+
+    geom_hline(yintercept = 1)+
+    geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+    geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+    labs(x="propensity quintile", y="OR")+
+    theme(axis.text.x = element_text(angle=45, hjust = 1),
+          legend.position="none", legend.title=element_blank())
+
+```
+
+```{r fig5, fig.cap=cap, fig.width=8, fig.height=8}
+
+  cap <- "Sub-group analysis of association between in-person schooling and COVID-19-related outcomes. Estimated odds ratio (versus those in strata not reporting in-person schooling) of COVID-19-related outcomes from full-time (circles, dashed lines) and part-time (triangles, dotted line) in-person schooling when data is stratified by (A) county population size and relation to metropolitan areas (metropolitan area, non-metropolitan area, adjacent to metropolitan area), (B) quintile of incidence (Q1 is lowest, Q5 is highest) and (C) propensity to report in-person schooling (Q5 most likely to have in-person schooling, Q1 least likely). Horizontal dashed and dotted lines show overall point estimates for full-time and part-time in-person instruction, respectively."
+
+  tmp <- cowplot::align_plots(cnty_plt, AR_plt, prop_plt, align = "h", axis = "b")
+  tmp <-cowplot::plot_grid(tmp[[1]],tmp[[2]],tmp[[3]], nrow=1,
+                     labels=c("A","B","C"))
+  
+  legend_l<- cowplot::get_legend(
+        cnty_plt+ 
+           theme(legend.position = "bottom")
+     )
+  
+  cowplot::plot_grid(tmp, legend_l, ncol=1, rel_heights = c(2,.1))
+  
+```
+
+
+# Supplementary Figures
+
+## Figure S1
+
+```{r figS1, fig.cap=cap, fig.width=7, fig.height=9}
+  cap <- "Distribution of outcomes in first period (left column), second period (center column) and change over time (right column). Results are shown for (A) number of survey respondents reporting ≧1 school-aged child in the household, (B) percent reporting in-person schooling, (C) percent reporting full-time in-person schooling, and (D) average number of in-school mitigation measures."
+
+  fig_S1(df)
+```
+
+## Figure S2
+
+```{r figs2-setup}
+
+dat<-as.data.frame(df)
+index<-grep("sch_", colnames(dat))
+temp<-dat[,index[-length(index)]]
+
+df$n_interventions<-rowSums(temp, na.rm=T)
+df$tot_pol<-rowSums(!is.na(temp), na.rm=T)
+df$no_pol<-df$tot_pol-df$n_interventions
+
+df$n_interventions[df$tot_pol==0]<-NA # Set those who reported no data on interventions to NA
+df$n_interventions[df$n_interventions==14]<-NA # Set those who reported all 14 interventions to NA
+df$n_interventions[df$Child_IP_any!="Yes"]<-NA # Set those who reported no in person schooling to NA
+
+# Create categorical variable of number of interventions 
+df$cat_int<-NA
+df$cat_int[df$n_interventions==0 & df$Child_IP_any=="Yes"]<-0
+df$cat_int[df$n_interventions>=1 & df$n_interventions<=3 &  df$Child_IP_any=="Yes"]<-1
+df$cat_int[df$n_interventions>=4 & df$n_interventions<=6 &  df$Child_IP_any=="Yes"]<-2
+df$cat_int[df$n_interventions>=7 & df$n_interventions<=9 &  df$Child_IP_any=="Yes"]<-3
+df$cat_int[df$n_interventions>=10 &  df$Child_IP_any=="Yes"]<-4
+
+```
+
+```{r figs2, fig.cap=cap}
+
+  cap <- "Distribution of selected county-level factors among participants reporting ≧1 school-aged child in the household by schooling type: no in-person schooling (none), part-time in-person schooling (Part), and full-time in-person schooling (Full); outlier values are excluded. Results are shown for county population size (A), percentage of county population that is white (B) percentage with income level under the appropriate poverty threshold (C) Gini index of income inequality (D) and average biweekly SARS-CoV-2 attack rate per 1000 persons (E). "
+  
+  dfc<-df
+  
+  dfc <- dfc%>%
+    mutate(None=ifelse(Child_IP_any=="(Missing)"|Child_IP_any=="Don't know", NA, Child_IP_any=="No"),
+         Part=ifelse(Child_IP_part=="(Missing)"|Child_IP_part=="Don't know", NA, Child_IP_part=="Yes"),
+         Full=ifelse(Child_IP_full=="(Missing)"|Child_IP_full=="Don't know", NA, Child_IP_full=="Yes")
+         )
+  bdfc<-dfc%>%pivot_longer(c(None, Part, Full), names_to="IPstat", values_to="is_IP_level")%>%filter(is_IP_level)
+  
+  bdfc$IPstat <- factor(bdfc$IPstat, level = c("None","Part", "Full"))
+
+
+  g1<-bdfc%>%ggplot(aes(x=IPstat, y=White*100, fill=IPstat))+ geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Schooling type") + ylab("% White") +  scale_fill_manual(values=c("lightsteelblue2","salmon2", "plum4"))
+  
+  g2<-bdfc%>%ggplot(aes(x=IPstat, y=Poverty*100, fill=IPstat))+ geom_boxplot(width=0.6, show.legend=FALSE,  outlier.shape = NA) + xlab("Schooling type") + ylab("% Poverty")  + ylim(0,30) +  scale_fill_manual(values=c("lightsteelblue2","salmon2", "plum4"))
+                                                                      
+  g3<-bdfc%>%ggplot(aes(x=IPstat, y=GINI, fill=IPstat))+ geom_boxplot(width=0.6, show.legend=FALSE,  outlier.shape = NA) + xlab("Schooling type") + ylab("Gini Index") + ylim(0.3,0.6) + scale_fill_manual(values=c("lightsteelblue2","salmon2", "plum4"))
+  
+  g4<-bdfc%>%ggplot(aes(x=IPstat, y=avg_biwk_AR*1000, fill=IPstat))+ geom_boxplot(width=0.6, show.legend=FALSE,  outlier.shape = NA) + xlab("Schooling type") + ylab("Average biweekly attack rate per 1000")  + ylim(0,20)+ scale_fill_manual(values=c("lightsteelblue2","salmon2", "plum4"))
+                                                                     
+  g5<-bdfc%>%ggplot(aes(x=IPstat, y=log10(Population), fill=IPstat))+ geom_boxplot(width=0.6, show.legend=FALSE,  outlier.shape = NA) + xlab("Schooling type") + ylab("Log10 population size")  + scale_fill_manual(values=c("lightsteelblue2","salmon2", "plum4"))
+                    
+  sfig2 <- ggpubr::ggarrange(g5, g1, g2, g3, g4,
+                      labels = c("A", "B", "C", "D", "E"),
+                      ncol = 3, nrow = 2)
+  sfig2
+
+```
+
+
+## Figure S3
+
+```{r full-data-load}
+df_ws <- readRDS("data/df_full_ext.rds")
+
+df_ws <- standard_recode(df_ws, min_HH=1)
+
+```
+
+```{r full-merge_case_data}
+
+csse <- read_csv("data/JHUCSSE.csv")
+
+df_ws <- merge_csse(df_ws, csse)
+
+rm(csse)
+```
+
+```{r full-merge-county-data}
+cnty_dat<- read_csv("data/county_factors.csv")%>%
+  mutate(fips=str_pad(FIPS,width=5,pad="0"))%>%
+  select(-FIPS, -X1)
+
+df_ws <- left_join(df_ws, cnty_dat)
+
+rm(cnty_dat)
+
+```
+
+```{r figS3, fig.cap=cap}
+
+  cap <- "Rates of COVID-19 related outcomes reported by study respondents versus average 2-week county level attack rate over response period calculated from reported confirmed cases among respondents with Pre K-12 children. Limited to counties with 50 or more respondents. Blue lines indicate fit smooth spline relationships. Correlations are Pearson correlation coefficients, and slopes come from a simple linear regression."
+  ar_plt <- supp_fig_outcome_compare(df)
+  ar_plt
+
+```
+
+## Figure S4
+
+```{r figS4, fig.cap=cap}
+
+  cap <- "Rates of COVID-19 related outcomes reported by study respondents versus average 2-week county level attack rate over response period calculated from reported confirmed cases among all respondents. Limited to counties with 50 or more respondents. Blue lines indicate fit smooth spline relationships. Correlations are Pearson correlation coefficients, and slopes come from a simple linear regression."
+  ar_plt_all <- supp_fig_outcome_compare(df_ws)
+  ar_plt_all
+
+```
+
+
+
+## Fig S5
+
+```{r figS5, fig.cap=cap}
+
+  ## Create aw clustering map of interventions based on their correlation with one another  
+
+  cap <- "Correlation and hierarchical clustering between school mitigation measures among participants with ≥1 school-aged child in the household attending any in-person schooling (part-time or full-time). Shading (z-axis) indicates correlation (range 0-1) between reported mitigation measures."
+
+
+  tmp_df <- df %>% 
+            filter(Child_IP_any=="Yes" & n_interventions>=0 & n_interventions<=13 & tot_pol==14) %>%
+            select(contains('sch_'))
+
+  tmp_df<-as.data.frame(tmp_df)
+  tmp_df<-tmp_df[,-ncol(tmp_df)]
+  colnames(tmp_df)<-c("student masking", "teacher masking", "same teacher", "same students", 
+                        "outdoor instruction","restricted entry", "reduced class size", "closed cafe", "closed play", "desk shields", "extra desk space", "no extracurricular", "no supply sharing", "daily symptom screen" )
+
+  cc = cor(tmp_df, use="pair")
+  pheatmap(cc, 
+          color = colorRampPalette(brewer.pal(n = 7, name =  "YlOrRd"))(100))
+
+```
+
+
+## Figure S6
+
+```{r figS6, fig.cap=cap}
+
+  cap <- "Percent of households with ≧1 child attending in-person school reporting each mitigation measure. Counties with less than 10 in-person respondents are excluded (gray). "
+  fig_S2(df)
+
+```
+
+
+## Figure S7
+
+```{r figS7-setup}
+
+  # setting up figure comparing n interventions model vs. number of interventions model. 
+  # uses regression outputs from Fig 3 above
+
+  n_reg_tst <- inperson_df%>%survey_reg(tst_pos~
+                       n_interventions+
+                       Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+  n_reg_cli <- inperson_df%>%survey_reg(cli_pos~
+                        n_interventions+
+                        Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+  n_reg_cli2 <- inperson_df%>%survey_reg(cli2_pos~
+                        n_interventions+
+                        Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description)
+
+```
+
+```{r figS7, fig.cap=cap}
+
+  cap <- "Predicted risk of COVID-19 related outcomes among those living with a child engaged in in-person schooling from model with only number of mitigation measures versus model with effects calculated for each individual mitigation measure, for reporting a positive COVID test (A,D), COVID-like illness (B,E) or loss of taste or smell (C,F). The top row (A-C) shows estimated logit probability of each outcome from a model with just number of mitigation measures versus a more complete model. The bottom row (D-F) shows boxplots of the relative odds of COVID-19 illness from the number of mitigations model versus the more complete model, by number of mitigation measures implemented."
+
+  tst_cmp <- cbind(predict(inter_reg_tst), predict(n_reg_tst))
+  inds <- as.numeric(rownames(tst_cmp))
+  colnames(tst_cmp)<-c("individual","n interventions")
+  tst_cmp <- as.tibble(tst_cmp) %>%
+    mutate(odds=exp(`n interventions`-individual),
+           n_interventions=inperson_df$n_interventions[inds])
+  
+  cli_cmp <- cbind(predict(inter_reg_cli), predict(n_reg_cli))
+  inds <- as.numeric(rownames(cli_cmp))
+  colnames(cli_cmp)<-c("individual","n interventions")
+  cli_cmp <- as.tibble(cli_cmp) %>%
+    mutate(odds=exp(`n interventions`-individual),
+           n_interventions=inperson_df$n_interventions[inds])
+
+  cli2_cmp <- cbind(predict(inter_reg_cli2), predict(n_reg_cli2))
+  colnames(cli2_cmp)<-c("individual","n interventions")
+  inds <- as.numeric(rownames(cli2_cmp))
+  cli2_cmp <- as.tibble(cli2_cmp) %>%
+    mutate(odds=exp(`n interventions`-individual),
+          n_interventions=inperson_df$n_interventions[inds])
+
+  tst_comp_plt <- tst_cmp %>%
+    ggplot(aes(x=individual, y=`n interventions`)) +
+    geom_point(alpha=.05)+
+    geom_smooth()+
+    geom_abline(slope = 1, linetype="dashed")+
+    theme_bw()+
+    xlab("indiv. effects")+
+    ylab("N only")
+    
+  cli_comp_plt <- cli_cmp %>%
+    ggplot(aes(x=individual, y=`n interventions`)) +
+    geom_point(alpha=.05)+
+    geom_smooth()+
+    geom_abline(slope = 1, linetype="dashed")+
+    theme_bw()+
+    xlab("indiv. effects")+
+    ylab("N only")
+  
+  cli2_comp_plt <- cli2_cmp %>%
+    ggplot(aes(x=individual, y=`n interventions`)) +
+    geom_point(alpha=.05)+
+    geom_smooth()+
+    geom_abline(slope = 1, linetype="dashed")+
+    theme_bw()+
+    xlab("indiv. effects")+
+    ylab("N only")
+
+  ## now make ones where we have the ratio by number of inteventions
+  tst_odds_plt <- tst_cmp%>%
+    ggplot(aes(x=as.factor(n_interventions), y=odds))+
+    geom_boxplot(alpha=.05)+
+    geom_hline(yintercept = 1)+
+    theme_bw()+
+    xlab("N mitigations")
+  
+  cli_odds_plt <- cli_cmp%>%
+    ggplot(aes(x=as.factor(n_interventions), y=odds))+
+    geom_boxplot(alpha=.05)+
+    geom_hline(yintercept = 1)+
+    theme_bw()+
+    xlab("N mitigations")
+  
+  
+  cli2_odds_plt <- cli2_cmp%>%
+    ggplot(aes(x=as.factor(n_interventions), y=odds))+
+    geom_boxplot(alpha=.05)+
+    geom_hline(yintercept = 1)+
+    theme_bw()+
+    xlab("N mitigations")
+
+
+  cowplot::plot_grid(tst_comp_plt, cli_comp_plt, cli2_comp_plt,
+                     tst_odds_plt, cli_odds_plt, cli2_odds_plt,
+                     nrow = 2,
+                     labels=c("A","B","C","D","E","F"))
+```
+
+
+## Figure S8
+
+```{r figS8, fig.cap=cap}
+
+  cap <- "Distribution of selected county-level factors among participants reporting ≧1 school-aged child in the household attending in-person school (part-time or full-time) by the number of reported mitigation measures in the school; outlier values are excluded. Results are shown for county population size (A), percentage of county population that is white (B), percentage with income level under the appropriate poverty threshold (C) Gini index of income inequality (D) and average biweekly SARS-CoV-2 attack rate per 1000 persons (E). "
+
+  bdfc$cat_int<-NA
+  bdfc$cat_int[bdfc$n_interventions==0 & bdfc$Child_IP_any=="Yes"]<-0
+  bdfc$cat_int[bdfc$n_interventions>=1 & bdfc$n_interventions<=3 &  bdfc$Child_IP_any=="Yes"]<-1
+  bdfc$cat_int[bdfc$n_interventions>=4 & bdfc$n_interventions<=6 &  bdfc$Child_IP_any=="Yes"]<-2
+  bdfc$cat_int[bdfc$n_interventions>=7 & bdfc$n_interventions<=9 &  bdfc$Child_IP_any=="Yes"]<-3
+  bdfc$cat_int[bdfc$n_interventions>=10 & bdfc$Child_IP_any=="Yes"]<-4
+  bdfc$cat_int <- factor(bdfc$cat_int, levels=0:4, labels = c("None","1-3", "4-6", "7-9", "10+"))
+  
+  bdfc2<-bdfc[-which(is.na(bdfc$cat_int)),]
+  
+  g1<-bdfc2[which(bdfc2$Child_IP_any=="Yes"),] %>% ggplot(aes(x=as.factor(cat_int), y=White*100, fill=as.factor(cat_int))) +                                                     geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Number of interventions") + ylab("% White") + scale_fill_brewer(palette="YlOrBr")
+  
+  g2<-bdfc2[which(bdfc2$Child_IP_any=="Yes"),] %>% ggplot(aes(x=as.factor(cat_int), y=Poverty*100, fill=as.factor(cat_int))) +                                                     geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Number of interventions") + ylab("% Poverty") + scale_fill_brewer(palette="YlOrBr") + ylim(0,30)
+  
+  g3<-bdfc2[which(bdfc2$Child_IP_any=="Yes"),] %>% ggplot(aes(x=as.factor(cat_int), y=GINI, fill=as.factor(cat_int))) +                                                   geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Number of interventions") + ylab("Gini index") + scale_fill_brewer(palette="YlOrBr") + ylim(0.3, 0.6)
+  
+  
+  g4<-bdfc2[which(bdfc2$Child_IP_any=="Yes"),] %>% ggplot(aes(x=as.factor(cat_int), y=avg_biwk_AR*1000, fill=as.factor(cat_int))) +                                                   geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Number of interventions") + ylab("Average biweekly attack rate per 1000") + scale_fill_brewer(palette="YlOrBr") + ylim(0,20)
+  
+  
+  g5<-bdfc2[which(bdfc2$Child_IP_any=="Yes"),] %>% ggplot(aes(x=as.factor(cat_int), y=log10(Population), fill=as.factor(cat_int))) +                                                   geom_boxplot(width=0.6,  show.legend=FALSE, outlier.shape = NA) + xlab("Number of interventions") + ylab("Log10 population size") + scale_fill_brewer(palette="YlOrBr")
+  
+  sfig4 <- ggpubr::ggarrange(g5, g1, g2, g3, g4,
+                      labels = c("A", "B", "C", "D", "E"),
+                      ncol = 3, nrow = 2)
+  sfig4
+
+```
+
+
+## Figure S9: See `EducatorAnalysis.Rmd`
+
+
+## Figure S10
+
+```{r figS10-setup-white}
+
+## Cut into 5 equal strata and look at impact of full time within each.
+df <- df%>%mutate(White_strata = cut_number(White, n=5,
+                                         labels=sprintf("Q%d",1:5)))
+
+
+White_cats <- unique(df$White_strata)
+White_cats <- White_cats[!is.na(White_cats)]
+outcomes <- c("tst2","cli","cli2")
+
+White_res <- NULL
+
+for(outcome in outcomes ) {
+  for(strata in White_cats) {
+    White_res <- df %>%
+      filter(White_strata==strata)%>%
+      pos_regs( outcome, as_df=TRUE, cnty_cov = T)%>%
+      mutate(strata=strata)%>%
+      bind_rows(White_res)
+  }
+  
+  White_res <- df %>%
+      pos_regs( outcome, as_df=TRUE,cnty_cov = F)%>%
+      mutate(strata="All")%>%
+      bind_rows(White_res)
+}
+
+
+tmp_dat <- White_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                         strata=="All",
+                                         adjusted)
+tmp_dat2 <- White_res%>%filter(str_detect(variable, "Child_IP_part"),
+                                         strata=="All",
+                                         adjusted)
+White_plt <-White_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                         strata!="All")%>%
+  ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+             color=outcome, shape=variable))+
+  geom_pointrange(position=position_dodge(width=.5))+
+  facet_grid(rows=vars(outcome))+
+  scale_y_log10()+
+  coord_cartesian(ylim=c(.75, 2))+
+      scale_color_brewer(type="qual", palette = "Dark2")+
+      theme_bw()+
+      theme(legend.position="bottom")+
+  geom_hline(yintercept = 1)+
+  geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+  geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+  labs(x="percent white strata", y="OR")+
+  theme(axis.text.x = element_text(angle=45, hjust = 1),
+        legend.position = "none")
+```
+
+
+```{r figS10-setup-poverty}
+
+## Cut into 5 equal strata and look at impact of full time within each.
+df <- df%>%mutate(Poverty_strata = cut_number(Poverty, n=5,
+                                         labels=sprintf("Q%d",1:5)))
+
+
+Poverty_cats <- unique(df$Poverty_strata)
+Poverty_cats <- Poverty_cats[!is.na(Poverty_cats)]
+outcomes <- c("tst2","cli","cli2")
+
+Poverty_res <- NULL
+
+for(outcome in outcomes ) {
+  for(strata in Poverty_cats) {
+    Poverty_res <- df %>%
+      filter(Poverty_strata==strata)%>%
+      pos_regs( outcome, as_df=TRUE, cnty_cov = T)%>%
+      mutate(strata=strata)%>%
+      bind_rows(Poverty_res)
+  }
+  
+  Poverty_res <- df %>%
+      pos_regs( outcome, as_df=TRUE,cnty_cov = F)%>%
+      mutate(strata="All")%>%
+      bind_rows(Poverty_res)
+}
+
+
+tmp_dat <- Poverty_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                         strata=="All",
+                                         adjusted)
+tmp_dat2 <- Poverty_res%>%filter(str_detect(variable, "Child_IP_part"),
+                                         strata=="All",
+                                         adjusted)
+Poverty_plt <-Poverty_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                         strata!="All")%>%
+  ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+             color=outcome, shape=variable))+
+  geom_pointrange(position=position_dodge(width=.5))+
+  facet_grid(rows=vars(outcome))+
+  scale_y_log10()+
+  coord_cartesian(ylim=c(.75, 2))+
+      scale_color_brewer(type="qual", palette = "Dark2")+
+      theme_bw()+
+      theme(legend.position="bottom")+
+  geom_hline(yintercept = 1)+
+  geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+  geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+  labs(x="percent poverty strata", y="OR")+
+  theme(axis.text.x = element_text(angle=45, hjust = 1),
+        legend.position = "none")
+```
+
+
+
+```{r figS10-setup-broadband}
+
+## Cut into 5 equal strata and look at impact of full time within each.
+df <- df%>%mutate(BBInternet_strata = cut_number(BBInternet.HH, n=5,
+                                         labels=sprintf("Q%d",1:5)))
+
+
+BBInternet_cats <- unique(df$BBInternet_strata)
+BBInternet_cats <- BBInternet_cats[!is.na(BBInternet_cats)]
+outcomes <- c("tst2","cli","cli2")
+
+BBInternet_res <- NULL
+
+for(outcome in outcomes ) {
+  for(strata in BBInternet_cats) {
+    BBInternet_res <- df %>%
+      filter(BBInternet_strata==strata)%>%
+      pos_regs( outcome, as_df=TRUE, cnty_cov = T)%>%
+      mutate(strata=strata)%>%
+      bind_rows(BBInternet_res)
+  }
+  
+  BBInternet_res <- df %>%
+      pos_regs( outcome, as_df=TRUE,cnty_cov = F)%>%
+      mutate(strata="All")%>%
+      bind_rows(BBInternet_res)
+}
+
+
+tmp_dat <- BBInternet_res%>%filter(str_detect(variable, "Child_IP_full"),
+                                         strata=="All",
+                                         adjusted)
+tmp_dat2 <- BBInternet_res%>%filter(str_detect(variable, "Child_IP_part"),
+                                         strata=="All",
+                                         adjusted)
+BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adjusted,
+                         strata!="All")%>%
+  ggplot(aes(x=strata, y=estimate, ymin=conf.low, ymax=conf.high,
+             color=outcome, shape=variable))+
+  geom_pointrange(position=position_dodge(width=.5))+
+  facet_grid(rows=vars(outcome))+
+  scale_y_log10()+
+  coord_cartesian(ylim=c(.75, 2))+
+      scale_color_brewer(type="qual", palette = "Dark2")+
+      theme_bw()+
+      theme(legend.position="bottom")+
+  geom_hline(yintercept = 1)+
+  geom_hline(data=tmp_dat, aes(yintercept=estimate), linetype="dashed")+
+  geom_hline(data=tmp_dat2, aes(yintercept=estimate), linetype="dotted")+
+  labs(x="percent broadband access strata", y="OR")+
+  theme(axis.text.x = element_text(angle=45, hjust = 1),
+        legend.position = "none")
+```
+
+
+```{r figS10, fig.cap=cap, fig.width=8, fig.height=8}
+
+  cap <- "Sub-group analysis of association between in-person schooling and COVID-19-related outcomes. Estimated odds ratio (versus those in strata not reporting in-person schooling) of COVID-19-related outcomes from full-time (circles, dashed lines) and part-time (triangles, dotted line) in-person schooling when data is stratified by (A) percent white, (B) percent poverty percent of households with access to broad band internet. Horizontal dashed and dotted lines show overall point estimates for full-time and part-time in-person instruction, respectively."
+
+  tmp <- cowplot::align_plots(White_plt, Poverty_plt, BBInternet_plt, align = "h", axis = "b")
+  tmp <-cowplot::plot_grid(tmp[[1]],tmp[[2]],tmp[[3]], nrow=1,
+                     labels=c("A","B","C"))
+  
+  legend_l<- cowplot::get_legend(
+        White_plt+ 
+           theme(legend.position = "bottom")
+     )
+  
+  cowplot::plot_grid(tmp, legend_l, ncol=1, rel_heights = c(2,.1))
+  
+```
+
+
+## Figure S11
+
+```{r figS11, fig.cap=cap}
+
+  cap <- "Average, period specific, bi-weekly county level attack rate from reported confirmed cases versus average number of interventions reported (limited to county-periods where at least 10 individuals reporting interventions)"
+
+ cnty_dat <- inperson_df%>%group_by(fips, period,avg_biwk_AR)%>%
+    summarize(n=n(),
+      avg_ints=mean(n_interventions, na.rm=T))%>%
+    ungroup()%>%
+    filter(n>=10)
+  
+  cnty_dat%>%ggplot(aes(y=avg_biwk_AR, x=avg_ints))+
+    geom_point(alpha=.1)+
+    geom_smooth()+
+    ylab("average county bi-weekly AR (JHU-CSSE)")+
+    xlab("Avg. county level number of interventions")+
+    theme_bw()
+  
+
+```
+
+
+## Figure S12
+
+```{r figS12, fig.cap=cap}
+
+  cap <- "Comparison of main study related outcomes with coefficients estimated for the relationship between in-person schooling and hypertension."
+
+  ## set up object for output + outcomes (including blood pressure)
+  ip_regs_bp <- NULL
+  outcomes <- c("tst2","cli","cli2","bp")
+
+  for(outcome in outcomes) {
+    ##Overall
+    ip_regs_bp <-  pos_regs(df, outcome, as_df=TRUE)%>%
+      mutate(Grade="overall")%>%
+      bind_rows(ip_regs_bp)
+  
+    ##Loop over grades doing regrssions among each
+    grades<- c("Pre_K","Grades_15","Grades_68","Grades_912")
+    grade_names <- c("K or under", "1 to 5", "6 to 8", 
+                                    "9 to 12")
+    for (i in 1:length(grades)) {  
+      ip_regs_bp <- single_grade_df %>%
+        filter(Grade==grades[i])%>%
+        pos_regs( outcome, as_df=TRUE)%>%
+        mutate(Grade=grade_names[i])%>%
+        bind_rows(ip_regs_bp)
+    }
+      
+  }
+
+  fig_S3(ip_regs_bp)
+
+```
+
+
+## Figure S13
+
+```{r figS13, fig.cap=cap}
+
+  cap <- "Odds ratio of secondary COVID-19-related outcomes associated with full- and part-time in-person schooling by outcome and grade level, adjusted for individual and county level covariates (but not number of mitigation measures). Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
+
+  # creating object for output
+  ip_regs_sec <- NULL
+  outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
+
+  # running regressions for each of provided outcomes
+  for(outcome in outcomes) {
+    ## Overall odds ratio
+    ip_regs_sec <-  pos_regs(df, outcome, as_df=TRUE)%>%
+      mutate(Grade="Overall")%>%
+      bind_rows(ip_regs_sec)
+  
+    ## Loop over grades doing regrssions among each
+    grades<- c("Pre_K","Grades_15","Grades_68","Grades_912")
+    grade_names <- c("K or under", "1 to 5", "6 to 8", 
+                                    "9 to 12")
+    for (i in 1:length(grades)) {  
+      ip_regs_sec <- single_grade_df %>%
+        filter(Grade==grades[i])%>%
+        pos_regs( outcome, as_df=TRUE)%>%
+        mutate(Grade=grade_names[i])%>%
+        bind_rows(ip_regs_sec)
+    }
+      
+  }
+
+  fig_S3(ip_regs_sec)
+  ggsave("figures/FigS3_sec-outcomes.pdf", width = 8, height=5.5)
+
+```
+
+
+## Figure S14
+
+```{r figS14, fig.cap=cap, fig.width=8, fig.height=8}
+
+  cap <- "Relationship between number of mitigation measures and proportion reporting secondary COVID-19-related outcomes using a log-linear (solid) and spline (dashed) model. (B) Adjusted odds ratio of COVID-19-related outcomes by mitigation measure in multivariate model including all measures. Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
+
+  # setting up outcomes to explore
+  outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
+  
+  # regression for secondary outcome 1: COVID like illness in HH
+  inter_reg_cliHH <- inperson_df%>%
+    survey_reg(cliHH_pos~
+               sch_maskMand_st+
+               sch_maskMand_tch+
+               sch_sameTch+
+               sch_sameSt+
+               sch_outdoorInstr+
+               sch_restEntry+
+               sch_redClassSize+
+               sch_closedCafe+
+               sch_closedPlay+
+               sch_deskShields+
+               sch_xdeskSpace+
+               sch_noExtraCurr+
+               sch_noShareSupp+
+               sch_dailySymptScr+
+               Child_IP_part_bin+
+               rel_avg_biwk_AR+
+               IsMale+Age+OccupationRed+
+               Educational_Level+
+               HH_sz+num_kid_recode+
+               mask_level+trav_out_state+
+               bar_rest_cafe_activ +
+               large_event_activ+
+               pub_transit_activ +
+               Population+
+               White+
+               GINI+
+               Poverty+
+               Description)
+
+  # regression for secondary outcome 2: HH member Test+
+  inter_reg_hhpos <- inperson_df%>%
+    survey_reg(cntct_HH_test_pos~
+               sch_maskMand_st+
+               sch_maskMand_tch+
+               sch_sameTch+
+               sch_sameSt+
+               sch_outdoorInstr+
+               sch_restEntry+
+               sch_redClassSize+
+               sch_closedCafe+
+               sch_closedPlay+
+               sch_deskShields+
+               sch_xdeskSpace+
+               sch_noExtraCurr+
+               sch_noShareSupp+
+               sch_dailySymptScr+
+               Child_IP_part_bin+
+               rel_avg_biwk_AR+
+               IsMale+Age+OccupationRed+
+               Educational_Level+
+               HH_sz+num_kid_recode+
+               mask_level+trav_out_state+
+               bar_rest_cafe_activ +
+               large_event_activ+
+               pub_transit_activ +
+               Population+
+               White+
+               GINI+
+               Poverty+
+               Description)
+
+  # regression for secondary outcome 3: Indicated Test+
+  inter_reg_pos_ind <- inperson_df%>%
+    survey_reg(tst_pos_ind~
+               sch_maskMand_st+
+               sch_maskMand_tch+
+               sch_sameTch+
+               sch_sameSt+
+               sch_outdoorInstr+
+               sch_restEntry+
+               sch_redClassSize+
+               sch_closedCafe+
+               sch_closedPlay+
+               sch_deskShields+
+               sch_xdeskSpace+
+               sch_noExtraCurr+
+               sch_noShareSupp+
+               sch_dailySymptScr+
+               Child_IP_part_bin+
+               rel_avg_biwk_AR+
+               IsMale+Age+OccupationRed+
+               Educational_Level+
+               HH_sz+num_kid_recode+
+               mask_level+trav_out_state+
+               bar_rest_cafe_activ +
+               large_event_activ+
+               pub_transit_activ +
+               Population+
+               White+
+               GINI+
+               Poverty+
+               Description)
+
+  # regression for secondary outcome 4: Non-indicated Test+
+  inter_reg_pos_rtn <- inperson_df%>%
+    survey_reg(tst_pos_routine~
+               sch_maskMand_st+
+               sch_maskMand_tch+
+               sch_sameTch+
+               sch_sameSt+
+               sch_outdoorInstr+
+               sch_restEntry+
+               sch_redClassSize+
+               sch_closedCafe+
+               sch_closedPlay+
+               sch_deskShields+
+               sch_xdeskSpace+
+               sch_noExtraCurr+
+               sch_noShareSupp+
+               sch_dailySymptScr+
+               Child_IP_part_bin+
+               rel_avg_biwk_AR+
+               IsMale+Age+OccupationRed+
+               Educational_Level+
+               HH_sz+num_kid_recode+
+               mask_level+trav_out_state+
+               bar_rest_cafe_activ +
+               large_event_activ+
+               pub_transit_activ +
+               Population+
+               White+
+               GINI+
+               Poverty+
+               Description)
+
+  # combining + formatting regression outputs
+  reg_tbl_sec <- 
+    gtsummary::tbl_regression(inter_reg_cliHH,exponentiate=T)$table_body%>%
+    mutate(outcome=outcome_names[1], adjustment="adjusted")
+  reg_tbl_sec <- 
+    gtsummary::tbl_regression(inter_reg_hhpos,exponentiate=T)$table_body%>%
+    mutate(outcome=outcome_names[2], adjustment="adjusted")%>%
+    bind_rows(reg_tbl_sec)
+  reg_tbl_sec <- 
+    gtsummary::tbl_regression(inter_reg_pos_ind,exponentiate=T)$table_body%>%
+    mutate(outcome=outcome_names[3], adjustment="adjusted")%>%
+    bind_rows(reg_tbl_sec)
+  reg_tbl_sec <- 
+    gtsummary::tbl_regression(inter_reg_pos_rtn,exponentiate=T)$table_body%>%
+    mutate(outcome=outcome_names[4], adjustment="adjusted")%>%
+    bind_rows(reg_tbl_sec)
+
+  fig_S4(inperson_df, reg_tbl_sec, outcome_names)
+  ggsave("figures/FigS4_sec-outcomes_alt.pdf", width = 8, height=8)
+
+```
+
+
+## Figure S15
+
+```{r figS15, fig.cap=cap}
+
+  cap <- "Odds ratio of secondary COVID-19-related outcomes associated with in-person full-time and part-time schooling by number of mitigation measures implemented, adjusted for individual and county-level covariates. An outlier value for the odds ratio of non-indicated positive test result among part-time in-person schooling with zero mitigation measures, for which the sample size was <30, is excluded. Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
+
+  # setting up outcomes and strata to explore
+  outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
+  outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
+  strata_low <- c(-Inf,1,4,7,10)
+  strata_high <- c(0,3,6,9,Inf)
+  strata_names <-c("0","1-3","4-6","7-9","10+")
+  
+  # creating object for output
+  mit_strata_sec <- NULL
+
+  # looping across outcomes and strata
+  for(outcome in outcomes) {
+    for(i in 1:length(strata_low)) {
+      mit_strata_sec <- df_mit%>%
+        filter((n_interventions>=strata_low[i]&
+                  n_interventions<=strata_high[i])|
+                 Child_IP_any=="No")%>%
+        pos_regs(outcome, as_df=TRUE)%>%
+         mutate(n_interventions=strata_names[i]) %>%
+        bind_rows(mit_strata_sec)
+    }
+  }
+
+  fig_S5(mit_strata_sec, outcome_names) + ggplot2::ylim(c(0.25, 7.5))
+  ggsave("figures/FigS5_sec-outcomes_n-int_strata.pdf", width = 8, height=5.5)
+
+```
+
+
+## Figure S16
+
+```{r figS16, fig.cap=cap, fig.width=6, fig.height=7}
+  
+  cap <- "Variable importance, as mean decrease in impurity, for random forests of propensity for in-person schooling. Variables with greater influence on the propensity score have higher values. "
+
+  # load random forest output
+  mdl_prop <- readRDS("data/mdl_prop.rds")
+
+  # define variable names
+  # names(mdl_prop$variable.importance)
+  var_names <- c("State", "Occupation", "Gender", "Age", "Employment Status", "Num. Kids", "Household Size",
+                 "Masking", "Travel outside state", "Visiting bar/restaurant", "Attending large event", "Using public transit", 
+                 "Seeing person outside HH", "Visiting grocery store", "Work/school outside home",
+                 "Child in Pre-K", "Child in Grade 1-5", "Child in Grade 6-8", 
+                 "Child in Grade 9-12", "County attack rate", "County population size", "County prop. white", 
+                 "County prop. Black", "County GINI index", "County prop. with broadband", 
+                 "County population density", "County prop. poverty", "County prop. no insurance", 
+                 "County prop. essential workers", "County prop. own computer", "County type", "County urban")
+  
+  # create object to plot
+  to_plt <- data.frame(var_label = var_names,
+                       imp = mdl_prop$variable.importance)
+  
+  to_plt %>%
+    ggplot(aes(x=reorder(var_label, imp), y=imp)) +
+    geom_col(fill="#064d37") +
+    coord_flip() +
+    theme_bw() +
+    xlab("Variable") +
+    ylab("Mean decrease in impurity")
+
+```
+
+
+
+# Supplementary Tables
+
+Note that supplementary tables are not printed here, but can be found in the working directory as `tables/TableSX.csv`.
+
+```{r table-setup}
+  levels(df$OccupationRed) <- c(levels(df$OccupationRed), "(Missing)") 
+  df$OccupationRed[which(is.na(df$OccupationRed))]<-"(Missing)"
+  
+  df$Age[which(is.na(df$Age))]<-"(Missing)"
+  
+  df$num_kid_recode[which(is.na(df$num_kid_recode))]<-"(Missing)"
+  
+  
+  levels(df$HH_sz) <- c(levels(df$HH_sz), "(Missing)") 
+  df$HH_sz[which(is.na(df$HH_sz))]<-"(Missing)"
+  
+  df$Educational_Level[which(is.na(df$Educational_Level))]<-"(Missing)"
+  
+  df$mask_level[which(is.na(df$mask_level))]<-"(Missing)"
+  
+  levels(df$trav_out_state) <-c(levels(df$trav_out_state),"(Missing)")
+  df$trav_out_state[which(is.na(df$trav_out_state))]<-"(Missing)"
+  
+  levels(df$bar_rest_cafe_activ)<-c(levels(df$bar_rest_cafe_activ),"(Missing)")
+  df$bar_rest_cafe_activ[which(is.na(df$bar_rest_cafe_activ))]<-"(Missing)"
+  
+  
+  levels(df$bar_rest_cafe_activ)<-c(levels(df$bar_rest_cafe_activ),"(Missing)")
+  df$bar_rest_cafe_activ[which(is.na(df$bar_rest_cafe_activ))]<-"(Missing)"
+  
+  
+  levels(df$large_event_activ)<-c(levels(df$large_event_activ),"(Missing)")
+  df$large_event_activ[which(is.na(df$large_event_activ))]<-"(Missing)"
+  
+  
+  levels(df$pub_transit_activ)<-c(levels(df$pub_transit_activ),"(Missing)")
+  df$pub_transit_activ[which(is.na(df$pub_transit_activ))]<-"(Missing)"
+  
+  levels(df$pub_transit_activ)<-c(levels(df$pub_transit_activ),"(Missing)")
+  df$pub_transit_activ[which(is.na(df$pub_transit_activ))]<-"(Missing)"
+  
+  levels(df$Description)<-c(levels(df$Description),"(Missing)")
+  df$Description[which(is.na(df$Description))]<-"(Missing)"
+  
+  
+  # Code the number of interventions implemented in the school among those with in-person school 
+  dat<-as.data.frame(df)
+  index<-grep("sch_", colnames(dat))
+  temp<-dat[,index[-length(index)]]
+  
+  df$n_interventions<-rowSums(temp, na.rm=T)
+  df$tot_pol<-rowSums(!is.na(temp), na.rm=T)
+  df$no_pol<-df$tot_pol-df$n_interventions
+  
+  df$n_interventions[df$tot_pol==0]<-NA # Set those who reported no data on interventions to NA
+  df$n_interventions[df$n_interventions==14]<-NA # Set those who reported all 14 interventions to NA
+  df$n_interventions[df$Child_IP_any!="Yes"]<-NA # Set those who reported no in person schooling to NA
+  
+  # Create categorical variable of number of interventions 
+  df$cat_int<-NA
+  df$cat_int[df$n_interventions==0 & df$Child_IP_any=="Yes"]<-0
+  df$cat_int[df$n_interventions>=1 & df$n_interventions<=3 &  df$Child_IP_any=="Yes"]<-1
+  df$cat_int[df$n_interventions>=4 & df$n_interventions<=6 &  df$Child_IP_any=="Yes"]<-2
+  df$cat_int[df$n_interventions>=7 & df$n_interventions<=9 &  df$Child_IP_any=="Yes"]<-3
+  df$cat_int[df$n_interventions>=10 &  df$Child_IP_any=="Yes"]<-4
+```
+
+## Table S1
+
+Selected sociodemographics among participants with ≥1 school-aged child in the household comparing those reporting no in-person schooling to those reporting any part-time and full-time in-person schooling; observed and survey-weighted percentages reported.
+
+```{r tableS1}
+
+## Summarize data for those attending full-time in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_full <-df%>%filter(Child_IP_full=="Yes") %>% 
+              select( Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  table1_ipfull <- tbl_summary(tmp_df_ip_full, missing="always")
+  
+  
+  tmp_df_ip_full_weighted <-df%>%filter(Child_IP_full=="Yes") %>% 
+              select( State, weight, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  
+  table1_ipfull_weighted<- survey::svydesign(~1, data=tmp_df_ip_full_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+
+## Summarize data for those attending part-time in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_part <-df%>%filter(Child_IP_part=="Yes") %>% 
+               select( Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+    
+  table1_ippart <- tbl_summary(tmp_df_ip_part, missing="always")
+  
+  
+    
+  tmp_df_ip_part_weighted <-df%>%filter(Child_IP_part=="Yes") %>% 
+              select( State, weight, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  
+  table1_ippart_weighted<- survey::svydesign(~1, data=tmp_df_ip_part_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+  
+## Summarize data for those not attending any in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_no <-df%>%filter(Child_IP_any=="No") %>% 
+                  select( Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  table1_ip_no <- tbl_summary(tmp_df_ip_no, missing="always")
+  
+  
+    
+  tmp_df_ip_no_weighted <-df%>%filter(Child_IP_any=="No") %>% 
+              select( State, weight, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  
+  table1_ip_no_weighted<- survey::svydesign(~1, data=tmp_df_ip_no_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+
+## Extract relevant table data from table summaries generated above  
+ 
+  ### Full time 
+  full_nw<-as.data.frame(table1_ipfull$table_body[,c("label", "stat_0")])
+  full_nw<-full_nw[-which(full_nw$label=="Unknown" | full_nw$label=="(Missing)"),]
+
+  full_w<-as.data.frame(table1_ipfull_weighted$table_body[,c("label", "stat_0")])
+  full_w<-full_w[-which(full_w$label=="(Missing)"),]
+
+  ### Part time 
+  part_nw<-as.data.frame(table1_ippart$table_body[,c("label", "stat_0")])
+  part_nw<-part_nw[-which(part_nw$label=="Unknown" | part_nw$label=="(Missing)"),]
+
+  part_w<-as.data.frame(table1_ippart_weighted$table_body[,c("label", "stat_0")])
+  part_w<-part_w[-which(part_w$label=="(Missing)"),]
+
+  # No in person schooling 
+  no_nw<-as.data.frame(table1_ip_no$table_body[,c("label", "stat_0")])
+  no_nw<-no_nw[-which(no_nw$label=="Unknown" | no_nw$label=="(Missing)"),]
+
+  no_w<-as.data.frame(table1_ip_no_weighted$table_body[,c("label", "stat_0")])
+  no_w<-no_w[-which(no_w$label=="(Missing)"),]
+
+
+## combine data and write table 
+  fb_supp_table1<-cbind(no_nw, no_w[,2], part_nw[,2], part_w[,2], full_nw[,2], full_w[,2])
+  colnames(fb_supp_table1)<-c("Variable","Unweighted_noip", "Weighted_noip", "Unweighted_part", "Weighted_part", "Unweighted_full", "Weighted_full")
+  
+  fb_supp_table1 <- fb_supp_table1[-which(fb_supp_table1$Variable=="No"),]
+  write.csv(fb_supp_table1, file="tables/TableS1.csv")
+
+```
+
+## Table S2
+
+Selected behaviors relevant to COVID-19 acquisition/transmission and COVID-19-related outcomes among participants with ≥1 school-aged child in the household comparing those reporting no in-person schooling to those reporting any part-time and full-time in-person schooling; observed and survey-weighted percentages reported.
+
+```{r tableS2}
+
+  # create overall indicated + non-indicated test variables
+  df <- df %>%
+        mutate(tested_routine=ifelse(COVID_tested=="Yes", tested_routine, FALSE),
+               tested_indic=ifelse(COVID_tested=="Yes", tested_indic, FALSE))
+
+  ## Summarize data for those attending full-time in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_full <-df%>%filter(Child_IP_full=="Yes") %>% 
+              select(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+  
+  table1_ipfull <- tbl_summary(tmp_df_ip_full, missing="always")
+  
+  
+  tmp_df_ip_full_weighted <-df%>%filter(Child_IP_full=="Yes") %>% 
+              select( State, weight, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+  
+  
+  table1_ipfull_weighted<- survey::svydesign(~1, data=tmp_df_ip_full_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+
+## Summarize data for those attending part-time in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_part <-df%>%filter(Child_IP_part=="Yes") %>% 
+               select(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+    
+  table1_ippart <- tbl_summary(tmp_df_ip_part, missing="always")
+  
+  
+  tmp_df_ip_part_weighted <-df%>%filter(Child_IP_part=="Yes") %>% 
+              select( State, weight, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+  
+  
+  table1_ippart_weighted<- survey::svydesign(~1, data=tmp_df_ip_part_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+  
+## Summarize data for those not attending any in-person school; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+  tmp_df_ip_no <-df%>%filter(Child_IP_any=="No") %>% 
+                  select(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+  table1_ip_no <- tbl_summary(tmp_df_ip_no, missing="always")
+  
+  
+    
+  tmp_df_ip_no_weighted <-df%>%filter(Child_IP_any=="No") %>% 
+              select( State, weight, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine)
+  
+  
+  table1_ip_no_weighted<- survey::svydesign(~1, data=tmp_df_ip_no_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(include=c(mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ, CLIv1, CLIv2, cliHH_pos, cntct_HH_test_pos, COVID_tested, COVID_positive, tst_pos_ind, tested_routine, tst_pos_routine), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+
+## Extract relevant table data from table summaries generated above  
+ 
+  ### Full time 
+  full_nw<-as.data.frame(table1_ipfull$table_body[,c("label", "stat_0")])
+  full_nw<-full_nw[-which(full_nw$label=="Unknown" | full_nw$label=="(Missing)"),]
+
+  full_w<-as.data.frame(table1_ipfull_weighted$table_body[,c("label", "stat_0")])
+  full_w<-full_w[-which(full_w$label=="Unknown" | full_w$label=="(Missing)"),]
+
+  ### Part tpime 
+  part_nw<-as.data.frame(table1_ippart$table_body[,c("label", "stat_0")])
+  part_nw<-part_nw[-which(part_nw$label=="Unknown" | part_nw$label=="(Missing)"),]
+
+  part_w<-as.data.frame(table1_ippart_weighted$table_body[,c("label", "stat_0")])
+  part_w<-part_w[-which(part_w$label=="Unknown" | part_w$label=="(Missing)"),]
+
+  # No in person schooling 
+  no_nw<-as.data.frame(table1_ip_no$table_body[,c("label", "stat_0")])
+  no_nw<-no_nw[-which(no_nw$label=="Unknown" | no_nw$label=="(Missing)"),]
+
+  no_w<-as.data.frame(table1_ip_no_weighted$table_body[,c("label", "stat_0")])
+  no_w<-no_w[-which(no_w$label=="Unknown" | no_w$label=="(Missing)"),]
+
+
+## combine data and write table 
+  
+  fb_supp_table2<-cbind(no_nw, no_w[,2], part_nw[,2], part_w[,2], full_nw[,2], full_w[,2])
+  colnames(fb_supp_table2)<-c("Variable","Unweighted_noip", "Weighted_noip", "Unweighted_part", "Weighted_part", "Unweighted_full", "Weighted_full")
+  
+  fb_supp_table2<-fb_supp_table2[-which(fb_supp_table2$Variable=="No"),]
+  
+  write.csv(fb_supp_table2, file="tables/TableS2.csv")
+
+```
+
+## Table S3
+
+Survey-weighted percentage of participants with ≥1 school-aged child in the household by reported schooling type and state.
+
+```{r tableS3}
+
+## Supplemental Table 3:period 1
+  tmp_df <- df %>% filter(period=="nov-dec") %>%
+              select(weight, State, Child_IP_full, Child_IP_part, Child_IP_any)
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_full), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_full<-tmp_tbl$table_body
+  tmp_full<-as.numeric(as.data.frame(tmp_tbl$table_body[2,7:57]))
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_part), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_part<-tmp_tbl$table_body
+  tmp_part<-as.numeric(as.data.frame(tmp_tbl$table_body[2,7:57]))
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_any), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_no<-tmp_tbl$table_body
+  tmp_no<-as.numeric(as.data.frame(tmp_tbl$table_body[3,7:57]))
+  
+  mydat1<-data.frame(State=sort(unique(df$State)), early_noip=tmp_no, early_pip=tmp_part, early_fip=tmp_full)
+
+
+## Supplemental Table 3:period 2
+  tmp_df <- df %>% filter(period=="post_dec") %>%
+              select(weight, State, Child_IP_full, Child_IP_part, Child_IP_any)
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_full), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_full<-tmp_tbl$table_body
+  tmp_full<-as.numeric(as.data.frame(tmp_tbl$table_body[2,7:57]))
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_part), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_part<-tmp_tbl$table_body
+  tmp_part<-as.numeric(as.data.frame(tmp_tbl$table_body[2,7:57]))
+  
+  tmp_tbl<- survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>%
+    tbl_svysummary(by = State, include=c(State, Child_IP_any), percent = "col", statistic=list(all_categorical()~"{p}"))
+  
+  tmp_no<-tmp_tbl$table_body
+  tmp_no<-as.numeric(as.data.frame(tmp_tbl$table_body[3,7:57]))
+  
+  mydat2<-data.frame(late_noip=tmp_no, late_pip=tmp_part, late_fip=tmp_full)
+
+## Combine two periods and write table 
+  fb_supp_table3<-cbind(mydat1, mydat2)
+  write.csv(fb_supp_table3, file="tables/TableS3.csv")
+
+```
+
+## Table S4: see above
+
+## Table S5
+
+Survey-weighted percentages of participants reporting school mitigation measures among those with ≥1 school-aged child in the household attending any in-person school (part-time or full-time) by state.
+
+```{r tableS5}
+
+## Subset data to only include those attending in-person school 
+  tmp_df <- df %>% filter(Child_IP_any=="Yes") %>%
+              select(weight, State, contains('sch_'))
+
+## Create survey weighted table 
+  tmp_table<-survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>% tbl_svysummary(by = State, include=c(State,  contains('sch')), percent = "col", statistic=list(all_categorical()~"{p}"))
+
+## Invert table so it is in proper format and subset relevant columns 
+  x<-as.data.frame(tmp_table$table_body)
+  x<-x[-which(x$label=="Unknown"),]
+  tab_ints<-as.data.frame(t(x[,7:57]))
+
+## Create an overall row and add to table 
+  tmp_table2<-survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>% tbl_svysummary(include=c(contains('sch')), percent = "col", missing="always", statistic=list(all_categorical()~"{p}"))
+  x2<-as.data.frame(tmp_table2$table_body)
+  x2<-x2[-which(x2$label=="Unknown"),]
+  x2<-as.numeric(x2[,ncol(x2)])
+  
+  tab_ints<-rbind(x2, tab_ints)
+
+## Label columns and rows 
+  colnames(tab_ints)<-colnames(tmp_df)[3:ncol(tmp_df)]
+  tab_ints<-tab_ints[,-ncol(tab_ints)] # Remove last column 
+  rownames(tab_ints)<-c("Overall", substr(tmp_table$table_header$label[7:nrow(tmp_table$table_header)],3,4))
+   
+  write.csv(tab_ints, file="tables/TableS5.csv")
+
+```
+
+## Table S6
+
+Loadings of school intervention/mitigation measure variables onto principal components (first 9 components explaining ~80% of total variance shown only). Analysis restricted to participants with ≥1 school-aged child in the household attending any in-person schooling (part-time or full-time).
+
+```{r tableS6}
+## Perform PCA on interventions among thse reporting in-person school: restrict analysis to those at least one intervention, fewer than 14, and those with missing data. 
+  
+  tmp_df <- df %>% 
+            filter(Child_IP_any=="Yes" & n_interventions>=0 & n_interventions<=13 & tot_pol==14) %>%
+            select(contains('sch_'))
+  
+  tmp_df<-as.data.frame(tmp_df)
+  tmp_df<-tmp_df[,-ncol(tmp_df)]
+  
+  keep = rowMeans(is.na(tmp_df)) == 0
+  
+  pca = prcomp(tmp_df[keep,])
+
+  getPcaVars <- function(pca, digits = 3) {
+      stopifnot(is(pca) == 'prcomp')
+      signif(pca$sdev^2 / sum(pca$sdev^2) * 100, digits = digits)
+  }
+ 
+  pca_table<-pca$rot[,1:9]
+  colnames(pca_table)<-paste(colnames(pca_table), " (", pca_variance[1:9], "%", ")", sep="")
+  rownames(pca_table)<-c("student masking", "teacher masking", "same teacher", "same students", 
+                        "outdoor instruction","restricted entry", "reduced class size", "closed cafe", "closed play", "desk shields", "extra desk space", "no extracurricular", "no supply sharing", "daily symptom screen")
+  
+  write.csv(pca_table, file="tables/TableS6.csv")
+
+```
+
+
+## Table S7
+
+Survey-weighted percentage of participants with ≥1 school-aged child attending any in-person school (part-time or full-time) by the reported number of school mitigation measures and state.
+
+```{r tableS7}
+
+  ## Subset data to only include those attending in-person school 
+  tmp_df <- df %>% filter(Child_IP_any=="Yes") %>%
+              select(weight, State, cat_int)
+  
+  ## Create survey weighted table 
+  tmp_table<-survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>% tbl_svysummary(by = State, include=c(State,  cat_int), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+  ## Invert table so it is in proper format and subset relevant columns 
+  x<-as.data.frame(tmp_table$table_body)
+  x<-x[-which(x$label=="Unknown"),]
+  tab_ints<-as.data.frame(t(x[,7:57]))
+  
+  ## Create an overall row and add to table 
+  tmp_table2<-survey::svydesign(~1, data=tmp_df, weights=~weight, strata=~State) %>% tbl_svysummary(include=c(cat_int), percent = "col", missing="always", statistic=list(all_categorical()~"{p}%"))
+  x2<-as.data.frame(tmp_table2$table_body)
+  x2<-x2[-which(x2$label=="Unknown"),]
+  x2<-x2[,ncol(x2)]
+  
+  tab_ints<-rbind(x2, tab_ints)
+  tab_ints<-tab_ints[,-1]
+  
+  ## Label columns and rows 
+  colnames(tab_ints)<-c("0", "1-3", "4-6", "7-9", "10+")
+  rownames(tab_ints)<-c("Overall", substr(tmp_table$table_header$label[7:nrow(tmp_table$table_header)],3,4))
+   
+  write.csv(tab_ints, file="tables/TableS7.csv")
+
+```
+
+
+## Table S8: see above
+
+
+## Table S9: see above
+
+
+## Table S10:
+
+Selected demographics among participants with ≥1 school-aged child in the household attending any in-person schooling (part-time or full-time) by number of reported school mitigation measures; observed and survey-weighted percentages reported.
+
+```{r tableS10}
+
+## Summarize data for those attending in-person school by categogry of interventions; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+
+  tmp_df <-df%>%filter(Child_IP_any=="Yes" & !is.na(cat_int)) %>% 
+              select(cat_int, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  tmp_tab <- tmp_df %>% tbl_summary(by = cat_int) 
+    
+  tmp_tab_summary<-as.data.frame(tmp_tab$table_body)
+  tmp_tab_summary<-tmp_tab_summary[,6:ncol(tmp_tab_summary)]
+  tmp_tab_summary<-tmp_tab_summary[-which(tmp_tab_summary$label=="Unknown" |  tmp_tab_summary$label=="(Missing)"),]
+
+  tmp_df_weighted <-df%>%filter(Child_IP_full=="Yes" & !is.na(cat_int)) %>% 
+              select( State, weight, cat_int, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz)
+  
+  
+  tmp_tab_weighted<- survey::svydesign(~1, data=tmp_df_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(by = cat_int, include=c(cat_int, Gender, Age, Pre_K, Grades1_5, Grades6_8, Grades9_12, Educational_Level, OccupationRed, Description, HH_sz), percent = "col", statistic=list(all_categorical()~"{p}%"))
+  
+  tmp_tab_weighted_summary<-as.data.frame(tmp_tab_weighted$table_body)
+  tmp_tab_weighted_summary<-tmp_tab_weighted_summary[,6:ncol(tmp_tab_weighted_summary)]
+  tmp_tab_weighted_summary<-tmp_tab_weighted_summary[-which(tmp_tab_weighted_summary$label=="Unknown" |  tmp_tab_weighted_summary$label=="(Missing)"),]
+
+  ## combine data and write table 
+  fb_supp_table9<-cbind(tmp_tab_summary[,1:2], tmp_tab_weighted_summary[,2], 
+                        tmp_tab_summary[,3], tmp_tab_weighted_summary[,3],
+                        tmp_tab_summary[,4], tmp_tab_weighted_summary[,4],
+                        tmp_tab_summary[,5], tmp_tab_weighted_summary[,5],
+                        tmp_tab_summary[,6], tmp_tab_weighted_summary[,6])
+  colnames(fb_supp_table9)<-c("Variable","Unweighted_0", "Weighted_0", 
+                              "Unweighted_1_3", "Weighted_1_3",
+                              "Unweighted_4_6", "Weighted_4_6",
+                              "Unweighted_7_9", "Weighted_7_9",
+                              "Unweighted_10+", "Weighted_10+")
+  
+  fb_supp_table9<-fb_supp_table9[-which(fb_supp_table9$Variable=="No"),]
+  
+  write.csv(fb_supp_table9, file="tables/TableS10.csv")
+  
+```
+
+
+## Table S11
+
+Selected behaviors relevant to COVID-19 acquisition/transmission among participants with ≥1 school-aged child in the household attending any in-person schooling (part-time or full-time) by number of reported school mitigation measures; observed and survey-weighted percentages reported.
+
+``` {r tableS11}
+
+## Summarize data for those attending in-person school by categogry of interventions; first subset relevant data, then make a temporary tables for unweighted and weighted percents 
+
+  tmp_df <-df%>%filter(Child_IP_any=="Yes" & !is.na(cat_int)) %>% 
+                select(cat_int, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ)
+    
+    tmp_tab <- tmp_df %>% tbl_summary(by = cat_int) 
+      
+    tmp_tab_summary<-as.data.frame(tmp_tab$table_body)
+    tmp_tab_summary<-tmp_tab_summary[,6:ncol(tmp_tab_summary)]
+    tmp_tab_summary<-tmp_tab_summary[-which(tmp_tab_summary$label=="Unknown" |  tmp_tab_summary$label=="(Missing)"),]
+  
+    tmp_df_weighted <-df%>%filter(Child_IP_full=="Yes" & !is.na(cat_int)) %>% 
+                select( State, weight, cat_int, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ)
+    
+    
+    tmp_tab_weighted<- survey::svydesign(~1, data=tmp_df_weighted, weights=~weight, strata=~State) %>%  tbl_svysummary(by = cat_int, include=c(cat_int, mask_level, trav_out_state, bar_rest_cafe_activ, large_event_activ, pub_transit_activ), percent = "col", statistic=list(all_categorical()~"{p}%"))
+    
+    tmp_tab_weighted_summary<-as.data.frame(tmp_tab_weighted$table_body)
+    tmp_tab_weighted_summary<-tmp_tab_weighted_summary[,6:ncol(tmp_tab_weighted_summary)]
+    tmp_tab_weighted_summary<-tmp_tab_weighted_summary[-which(tmp_tab_weighted_summary$label=="Unknown" |     tmp_tab_weighted_summary$label=="(Missing)"),]
+
+
+  ## combine data and write table 
+  fb_supp_table10<-cbind(tmp_tab_summary[,1:2], tmp_tab_weighted_summary[,2], 
+                        tmp_tab_summary[,3], tmp_tab_weighted_summary[,3],
+                        tmp_tab_summary[,4], tmp_tab_weighted_summary[,4],
+                        tmp_tab_summary[,5], tmp_tab_weighted_summary[,5],
+                        tmp_tab_summary[,6], tmp_tab_weighted_summary[,6])
+  colnames(fb_supp_table10)<-c("Variable","Unweighted_0", "Weighted_0", 
+                              "Unweighted_1_3", "Weighted_1_3",
+                              "Unweighted_4_6", "Weighted_4_6",
+                              "Unweighted_7_9", "Weighted_7_9",
+                              "Unweighted_10+", "Weighted_10+")
+  
+  fb_supp_table10<-fb_supp_table10[-which(fb_supp_table10$Variable=="No"),]
+  
+  write.csv(fb_supp_table10, file="tables/TableS11.csv")
+  
+```
+
+
+## Table S12: see `EducatorAnalysis.Rmd`
+
+

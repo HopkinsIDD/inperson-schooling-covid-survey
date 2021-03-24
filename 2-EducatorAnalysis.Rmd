@@ -1,0 +1,339 @@
+---
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(echo=FALSE, message = FALSE, warning = FALSE, error=TRUE)
+
+```
+
+```{r loading_pkgs}
+  ##Source code and library stuff
+  library(tidyverse)
+  library(anytime)
+  library(survey)
+  library(srvyr)
+  library(maps)
+  library(R.utils)
+  library(data.table)
+  library(extrafont)
+  library(viridis)
+  library(gtsummary)
+  library(janitor)
+  library(pheatmap)
+  library(RColorBrewer)
+
+  source("HelperFuncs.R")
+  source("MainTextFigures.R")
+
+```
+
+```{r full-data-load}
+
+  stop("WARNING: This document will prepare tables and figures exploring the effects of occupation and work outside the home using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
+
+  df_ws <- readRDS("data/DATA_FOR_TESTING_ONLY_DOES_NOT_REPRODUCE_RESULTS_df_full_ext.rds")
+  
+  # recode, without dropping HH with only 1 individual
+  df_ws <- standard_recode(df_ws, min_HH=1)
+```
+
+```{r full-merge_case_data}
+  csse <- read_csv("data/JHUCSSE.csv")
+  
+  df_ws <- merge_csse(df_ws, csse)
+  
+  rm(csse)
+```
+
+```{r full-merge-county-data}
+  cnty_dat<- read_csv("data/county_factors.csv")%>%
+    mutate(fips=str_pad(FIPS,width=5,pad="0"))%>%
+    select(-FIPS, -X1)
+  
+  df_ws <- left_join(df_ws, cnty_dat)
+  
+  rm(cnty_dat)
+```
+
+```{r edtype_recode}
+  ##Make and occupation K12Educator
+  df_ws <- df_ws%>%
+    mutate(OccEdRecode = OccupationRed,
+           OccEdRecode = ifelse(OccEdRecode!="Education", as.character(OccEdRecode),
+                                ifelse(educationjob_type%in%
+                                         c("elemid_teacher",
+                                           "preKteacher",
+                                           "second_teacher"),
+                                       "K12Teacher","OtherEductation")))
+  
+  
+  ##Just to simplify the analysis, lets make anything with less than 
+  ##50,000 folks other
+  df_ws <- df_ws%>%group_by(OccEdRecode)%>%
+    mutate(OccEdRecode = ifelse(n()<50000, "Other", OccEdRecode))%>%
+    ungroup()
+  
+  ##Make factor with Office and admin support as the
+  ##intercept
+  df_ws <- df_ws%>%
+      mutate(OccEdRecode =factor(OccEdRecode),
+            OccEdRecode = relevel(OccEdRecode, ref="Office and admin support"))
+  
+```
+
+## Figure S9
+
+```{r figS9-stup-models}
+
+  # setting up the outcomes to explore and object for output
+  outcomes <- c("tst_pos","cli_pos", "cli2_pos")
+  outcome_nms <- c("Test+","Covid like illness","Loss taste/smell")
+  occ_reg_tbl <- NULL
+
+  # running models for each outcome with occupation exposure
+  # unadjusted and adjusted, with/without interaction bw occupation and work outside home
+for (i in 1:length(outcomes)) {
+  f_lst <- NULL
+  
+  ##overall pop unadjusted
+  f_lst <- bind_rows(f_lst,c(
+     f=sprintf("%s~OccEdRecode", outcomes[i]),
+     adjusted=FALSE,
+     interaction=FALSE,
+     subset=FALSE))
+  ##overall pop, unadjusted, interaction
+  f_lst <- bind_rows(f_lst,c(
+    f=sprintf("%s~OccEdRecode +
+              OccEdRecode:work_outside_paid",outcomes[i]),
+    adjusted=FALSE,
+    interaction=TRUE,
+    subset=FALSE))
+  ##overall pop adjusted
+  f_lst <- bind_rows(f_lst,c(
+     f=sprintf("%s~OccEdRecode+rel_avg_biwk_AR+
+                IsMale+Age+
+                Educational_Level+HH_sz+
+                mask_always+
+                mask_most+
+                trav_out_state+
+                bar_rest_cafe_activ+
+                large_event_activ+
+                pub_transit_activ+
+                Population+
+                White+
+                GINI+
+                Poverty+
+                Description", outcomes[i]),
+     adjusted=TRUE,
+     interaction=FALSE,
+     subset=FALSE))
+  ##overall pop, adjusted, interaction
+  f_lst <- bind_rows(f_lst,c(
+    f=sprintf("%s~OccEdRecode+
+              OccEdRecode:work_outside_paid+
+              rel_avg_biwk_AR+
+                IsMale+Age+
+                Educational_Level+HH_sz+
+                mask_always+
+                mask_most+
+                trav_out_state+
+                bar_rest_cafe_activ+
+                large_event_activ+
+                pub_transit_activ+
+                Population+
+                White+
+                GINI+
+                Poverty+
+                Description",outcomes[i]),
+    adjusted=TRUE,
+    interaction=TRUE,
+    subset=FALSE))
+  
+  for(j in 1:nrow(f_lst)) {
+    reg <- survey_reg(df_ws, formula(f_lst$f[j]))
+    occ_reg_tbl <-  gtsummary::tbl_regression(reg)$table_body%>%
+      mutate(adjusted=f_lst$adjusted[j],
+             interaction=f_lst$interaction[j],
+             subset=f_lst$subset[j],
+             outcome=outcome_nms[i])%>%
+      bind_rows(occ_reg_tbl)
+  }    
+}
+
+```
+
+
+```{r figS9, fig.cap=cap, fig.width=5, fig.height=6}
+
+  cap <- "Odds ratio of COVID-19-related outcomes, contrasting office workers not reporting extra-household work for pay to those in other employment categories not reporting work for pay outside the home (top), and to those reporting work for pay outside the home (bottom). The middle row shows the odds ratio (i.e., increased risk) within each category associated with working outside the home compared to no work outside the home."
+
+  occ_reg_tbl <- occ_reg_tbl%>%
+        mutate(main_term = ifelse(var_type=="interaction",
+                                str_extract(label,"(.+)(?= \\*)" ),
+                                label))
+
+
+  # reformatting object for plotting
+  tmp <- occ_reg_tbl %>%
+    mutate(adjusted=adjusted=="TRUE",interaction=interaction=="TRUE")%>%
+    filter(adjusted,interaction,
+           str_detect(variable,"OccEdRecode"),
+           label!="OccEdRecode",
+           label!="Office and admin support",
+           row_type!="label")%>%
+    select(label, main_term, estimate, 
+           std.error,
+           outcome, adjusted, interaction)%>%
+    group_by(main_term, outcome)%>%
+    summarize(estimate=sum(estimate),
+              std.error=sqrt(sum(std.error^2)))%>%
+    ungroup()%>%mutate(inter_term="outside wk*baseline")
+    
+  tmp <-  occ_reg_tbl %>%
+    mutate(adjusted=adjusted=="TRUE",interaction=interaction=="TRUE")%>%
+    filter(adjusted,interaction,
+           str_detect(variable,"OccEdRecode"),
+           label!="OccEdRecode",
+           label!="Office and admin support",
+           row_type!="label")%>%
+    filter(var_type=="interaction")%>%
+    select(main_term, estimate, 
+           std.error,outcome)%>%
+    mutate(inter_term="outside wk")%>%
+    bind_rows(tmp)
+  
+  
+  tmp <-  occ_reg_tbl %>%
+    mutate(adjusted=adjusted=="TRUE",interaction=interaction=="TRUE")%>%
+    filter(adjusted,interaction,
+           str_detect(variable,"OccEdRecode"),
+           label!="OccEdRecode",
+           label!="Office and admin support",
+           row_type!="label")%>%
+    filter(var_type=="categorical")%>%
+    select(main_term, estimate, 
+           std.error,outcome)%>%
+    mutate(inter_term="baseline")%>%
+    bind_rows(tmp)
+  
+  
+  overall_interact_plt <-tmp %>%
+    mutate(conf.low=exp(estimate-1.96*std.error),
+           conf.high=exp(estimate+1.96*std.error),
+           estimate=exp(estimate))%>%
+    ggplot(aes(x=main_term, y=estimate, ymin=conf.low, ymax=conf.high,
+               color=outcome))+
+    geom_pointrange(position=position_dodge(width=.5))+
+    scale_y_log10()+
+    scale_color_brewer(type="qual", palette = "Dark2")+
+    theme_bw()+
+    theme(legend.position="bottom",
+          axis.text.x = element_text( angle = 45, hjust=1))+
+    geom_hline(yintercept=1)+
+    facet_grid(rows=vars(inter_term),
+              scales="free_y")
+
+  overall_interact_plt
+  
+```
+
+
+## Table S12
+
+The relative odds, compared to office and administrative support staff not working outside the home for pay, of COVID-19-related outcomes among individuals who do, and do not, report paid work outside the home. 
+
+```{r tableS12}
+
+  # setting up object for tables
+  occ_reg_sum <- occ_reg_tbl %>%
+    mutate(adjusted=adjusted=="TRUE",
+           outcome=recode(outcome,
+                          `Covid like illness`="COVID like illness",
+                          `Loss taste/smell`="Loss of taste/smell",
+                          `Test+`="Overall Test+"))%>%
+    filter(str_detect(variable,"OccEdRecode"))%>%
+    select(outcome, adjusted,interaction, 
+           label, estimate, conf.low, conf.high)%>%
+    mutate(estimate=exp(estimate),
+           conf.low=exp(conf.low),
+           conf.high=exp(conf.high))%>%
+    pivot_wider(names_from=c(adjusted, outcome),
+                values_from=c(estimate,conf.low,conf.high))
+  
+
+  # printing regression table
+  occ_reg_disp_tbl <- occ_reg_sum%>%
+    drop_na()%>%
+    filter(interaction=="TRUE")%>%
+    select(-interaction)%>%
+        gt::gt()%>%
+        gt::fmt_number(
+          columns=starts_with("estimate"),
+          decimals=2
+        )%>%
+        gt::fmt_number(
+          columns=starts_with("conf"),
+          decimals=2
+        )%>%
+        gt::tab_spanner(
+          label=c("Test+"),
+          columns = ends_with("Test+")
+        )%>% 
+        gt::tab_spanner(
+          label=c("COVID like illness"),
+          columns = ends_with("COVID like illness")
+        )%>%
+        gt::tab_spanner(
+          label=c("Loss of taste/smell"),
+          columns = ends_with("taste/smell")
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_Loss of taste/smell`),
+          col_end=vars(`conf.high_TRUE_Loss of taste/smell`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_Overall Test+`),
+          col_end=vars(`conf.high_TRUE_Overall Test+`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_TRUE_COVID like illness`),
+          col_end=vars(`conf.high_TRUE_COVID like illness`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_FALSE_Loss of taste/smell`),
+          col_end=vars(`conf.high_FALSE_Loss of taste/smell`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_FALSE_Overall Test+`),
+          col_end=vars(`conf.high_FALSE_Overall Test+`)
+        )%>%
+        gt::cols_merge_range(
+          col_begin=vars(`conf.low_FALSE_COVID like illness`),
+          col_end=vars(`conf.high_FALSE_COVID like illness`)
+        )%>%
+        gt::cols_label(
+          `conf.low_TRUE_Loss of taste/smell`="95% CI",
+          `conf.low_TRUE_Overall Test+`="95% CI",
+          `conf.low_TRUE_COVID like illness`="95% CI",
+          `estimate_TRUE_Loss of taste/smell`="adj. OR",
+          `estimate_TRUE_Overall Test+`="adj OR",
+          `estimate_TRUE_COVID like illness`="adj OR",
+          `conf.low_FALSE_Loss of taste/smell`="95% CI",
+          `conf.low_FALSE_Overall Test+`="95% CI",
+          `conf.low_FALSE_COVID like illness`="95% CI",
+          `estimate_FALSE_Loss of taste/smell`="OR",
+          `estimate_FALSE_Overall Test+`="OR",
+          `estimate_FALSE_COVID like illness`="OR",
+          label="Occupation"
+        )%>%
+        gt::tab_options(
+          row_group.font.weight   = "lighter",
+          column_labels.font.weight = "bold"
+        )
+
+  occ_reg_disp_tbl
+
+```
+
