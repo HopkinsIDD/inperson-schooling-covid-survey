@@ -3,6 +3,19 @@ output: html_document
 ---
 
 
+## Source Code for _Household COVID-19 risk and In-person schooling_ 
+#### Justin Lessler, M. Kate Grabowski, Kyra H. Grantz, Elena Badillo-Goicoechea, C. Jessica E. Metcalf, Carly Lupton-Smith, Andrew S. Azman, Elizabeth A. Stuart
+ _________
+ 
+Code is provided to reproduce the primary in-person schooling (`1-Primary-Schooling-Analysis.Rmd`) and occupation/work outside home (`2-Educator-Analysis.Rmd`) analyses using a synthetic dataset. Hence, results produced when knitting these documents will **not** match those presented in the accompanying paper. 
+
+Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io).
+
+Preprint: [Household COVID-19 risk and in-person schooling](https://www.medrxiv.org/content/10.1101/2021.02.27.21252597v1)
+
+Please reach out to justin[at]jhu.edu if you have any questions.
+
+
 ```{r setup, include=FALSE}
   knitr::opts_chunk$set(echo=FALSE, message = FALSE, warning = FALSE, error=TRUE)
 
@@ -31,7 +44,7 @@ output: html_document
 
 ```{r warning-message}
 
-  knitr::knit_exit("WARNING: This document will prepare tables and figures exploring the effects of in-person schooling using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
+  knitr::knit_exit("**WARNING: This document will prepare tables and figures exploring the effects of in-person schooling using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).**")
 
 ```
 
@@ -84,6 +97,23 @@ output: html_document
 
   inperson_df <- df%>% 
     filter(Child_IP_any=="Yes")%>%
+    # NOTE: this replace_na step is not strictly necessary for the full data
+    replace_na(
+      list(sch_maskMand_st=FALSE,
+        sch_maskMand_tch=FALSE,
+        sch_sameTch=FALSE,
+        sch_sameSt=FALSE,
+        sch_outdoorInstr=FALSE,
+        sch_restEntry=FALSE,
+        sch_redClassSize=FALSE,
+        sch_closedCafe=FALSE,
+        sch_closedPlay=FALSE,
+        sch_deskShields=FALSE,
+        sch_xdeskSpace=FALSE,
+        sch_noExtraCurr=FALSE,
+        sch_noShareSupp=FALSE,
+        sch_dailySymptScr=FALSE)
+      ) %>%
     mutate(n_interventions=
                  sch_maskMand_st+
                  sch_maskMand_tch+
@@ -381,6 +411,22 @@ The association between mitigation measures and the off-ratio of COVID-19-relate
 
   # creating df with number of interventions
   df_mit <- df%>% 
+    replace_na(
+      list(sch_maskMand_st=FALSE,
+        sch_maskMand_tch=FALSE,
+        sch_sameTch=FALSE,
+        sch_sameSt=FALSE,
+        sch_outdoorInstr=FALSE,
+        sch_restEntry=FALSE,
+        sch_redClassSize=FALSE,
+        sch_closedCafe=FALSE,
+        sch_closedPlay=FALSE,
+        sch_deskShields=FALSE,
+        sch_xdeskSpace=FALSE,
+        sch_noExtraCurr=FALSE,
+        sch_noShareSupp=FALSE,
+        sch_dailySymptScr=FALSE)
+      ) %>%
     mutate(n_interventions=
                   sch_maskMand_st+
                   sch_maskMand_tch+
@@ -431,6 +477,22 @@ Association between risk of full-time schooling and number of mitigation measure
 
   # setting up single grade df with number of interventions
   sg_df_mit <- single_grade_df %>% 
+   replace_na(
+      list(sch_maskMand_st=FALSE,
+        sch_maskMand_tch=FALSE,
+        sch_sameTch=FALSE,
+        sch_sameSt=FALSE,
+        sch_outdoorInstr=FALSE,
+        sch_restEntry=FALSE,
+        sch_redClassSize=FALSE,
+        sch_closedCafe=FALSE,
+        sch_closedPlay=FALSE,
+        sch_deskShields=FALSE,
+        sch_xdeskSpace=FALSE,
+        sch_noExtraCurr=FALSE,
+        sch_noShareSupp=FALSE,
+        sch_dailySymptScr=FALSE)
+      ) %>%
     mutate(n_interventions=
                   sch_maskMand_st+
                   sch_maskMand_tch+
@@ -788,7 +850,7 @@ df$cat_int[df$n_interventions>=10 &  df$Child_IP_any=="Yes"]<-4
 ## Figure S3
 
 ```{r full-data-load}
-df_ws <- readRDS("data/df_full_ext.rds")
+df_ws <- readRDS("data/DATA_FOR_TESTING_ONLY_DOES_NOT_REPRODUCE_RESULTS_df_full_ext.rds")
 
 df_ws <- standard_recode(df_ws, min_HH=1)
 
@@ -1048,7 +1110,7 @@ rm(cnty_dat)
 ```
 
 
-## Figure S9: See `EducatorAnalysis.Rmd`
+## Figure S9: See `2-EducatorAnalysis.Rmd`
 
 
 ## Figure S10
@@ -1297,13 +1359,16 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
 
 ## Figure S13
 
+*Note: due to small sample size in the randomly-generate sample data, results are not shown here for non-indicated test positive outcomes. Uncomment lines 1371, 1407, 1506-1535, 1549-1552 in the Rmd to run with all outcomes with full data.*
+
 ```{r figS13, fig.cap=cap}
 
   cap <- "Odds ratio of secondary COVID-19-related outcomes associated with full- and part-time in-person schooling by outcome and grade level, adjusted for individual and county level covariates (but not number of mitigation measures). Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
 
   # creating object for output
   ip_regs_sec <- NULL
-  outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
+  outcomes <- c("hh_cli", "hh_pos", "tst_ind")
+  # outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
 
   # running regressions for each of provided outcomes
   for(outcome in outcomes) {
@@ -1327,7 +1392,6 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
   }
 
   fig_S3(ip_regs_sec)
-  ggsave("figures/FigS3_sec-outcomes.pdf", width = 8, height=5.5)
 
 ```
 
@@ -1339,8 +1403,9 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
   cap <- "Relationship between number of mitigation measures and proportion reporting secondary COVID-19-related outcomes using a log-linear (solid) and spline (dashed) model. (B) Adjusted odds ratio of COVID-19-related outcomes by mitigation measure in multivariate model including all measures. Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
 
   # setting up outcomes to explore
-  outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
-  
+  outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+")
+  # outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
+
   # regression for secondary outcome 1: COVID like illness in HH
   inter_reg_cliHH <- inperson_df%>%
     survey_reg(cliHH_pos~
@@ -1438,36 +1503,36 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
                Description)
 
   # regression for secondary outcome 4: Non-indicated Test+
-  inter_reg_pos_rtn <- inperson_df%>%
-    survey_reg(tst_pos_routine~
-               sch_maskMand_st+
-               sch_maskMand_tch+
-               sch_sameTch+
-               sch_sameSt+
-               sch_outdoorInstr+
-               sch_restEntry+
-               sch_redClassSize+
-               sch_closedCafe+
-               sch_closedPlay+
-               sch_deskShields+
-               sch_xdeskSpace+
-               sch_noExtraCurr+
-               sch_noShareSupp+
-               sch_dailySymptScr+
-               Child_IP_part_bin+
-               rel_avg_biwk_AR+
-               IsMale+Age+OccupationRed+
-               Educational_Level+
-               HH_sz+num_kid_recode+
-               mask_level+trav_out_state+
-               bar_rest_cafe_activ +
-               large_event_activ+
-               pub_transit_activ +
-               Population+
-               White+
-               GINI+
-               Poverty+
-               Description)
+  # inter_reg_pos_rtn <- inperson_df%>%
+  #   survey_reg(tst_pos_routine~
+  #              sch_maskMand_st+
+  #              sch_maskMand_tch+
+  #              sch_sameTch+
+  #              sch_sameSt+
+  #              sch_outdoorInstr+
+  #              sch_restEntry+
+  #              sch_redClassSize+
+  #              sch_closedCafe+
+  #              sch_closedPlay+
+  #              sch_deskShields+
+  #              sch_xdeskSpace+
+  #              sch_noExtraCurr+
+  #              sch_noShareSupp+
+  #              sch_dailySymptScr+
+  #              Child_IP_part_bin+
+  #              rel_avg_biwk_AR+
+  #              IsMale+Age+OccupationRed+
+  #              Educational_Level+
+  #              HH_sz+num_kid_recode+
+  #              mask_level+trav_out_state+
+  #              bar_rest_cafe_activ +
+  #              large_event_activ+
+  #              pub_transit_activ +
+  #              Population+
+  #              White+
+  #              GINI+
+  #              Poverty+
+  #              Description)
 
   # combining + formatting regression outputs
   reg_tbl_sec <- 
@@ -1481,13 +1546,12 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
     gtsummary::tbl_regression(inter_reg_pos_ind,exponentiate=T)$table_body%>%
     mutate(outcome=outcome_names[3], adjustment="adjusted")%>%
     bind_rows(reg_tbl_sec)
-  reg_tbl_sec <- 
-    gtsummary::tbl_regression(inter_reg_pos_rtn,exponentiate=T)$table_body%>%
-    mutate(outcome=outcome_names[4], adjustment="adjusted")%>%
-    bind_rows(reg_tbl_sec)
+  # reg_tbl_sec <- 
+  #   gtsummary::tbl_regression(inter_reg_pos_rtn,exponentiate=T)$table_body%>%
+  #   mutate(outcome=outcome_names[4], adjustment="adjusted")%>%
+  #   bind_rows(reg_tbl_sec)
 
   fig_S4(inperson_df, reg_tbl_sec, outcome_names)
-  ggsave("figures/FigS4_sec-outcomes_alt.pdf", width = 8, height=8)
 
 ```
 
@@ -1499,8 +1563,10 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
   cap <- "Odds ratio of secondary COVID-19-related outcomes associated with in-person full-time and part-time schooling by number of mitigation measures implemented, adjusted for individual and county-level covariates. An outlier value for the odds ratio of non-indicated positive test result among part-time in-person schooling with zero mitigation measures, for which the sample size was <30, is excluded. Note that wide confidence intervals for non-indicated tests are due to low numbers (see Table SX)."
 
   # setting up outcomes and strata to explore
-  outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
-  outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
+  outcomes <- c("hh_cli", "hh_pos", "tst_ind")
+    outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+")
+  # outcomes <- c("hh_cli", "hh_pos", "tst_ind", "tst_rout")
+  # outcome_names <- c("COVID like illness in HH", "HH member Test+", "Indicated Test+", "Non-indicated Test+")
   strata_low <- c(-Inf,1,4,7,10)
   strata_high <- c(0,3,6,9,Inf)
   strata_names <-c("0","1-3","4-6","7-9","10+")
@@ -1521,8 +1587,7 @@ BBInternet_plt <-BBInternet_res%>%filter(str_detect(variable, "Child_IP_"), adju
     }
   }
 
-  fig_S5(mit_strata_sec, outcome_names) + ggplot2::ylim(c(0.25, 7.5))
-  ggsave("figures/FigS5_sec-outcomes_n-int_strata.pdf", width = 8, height=5.5)
+  fig_S5(mit_strata_sec, outcome_names)
 
 ```
 
@@ -1920,7 +1985,8 @@ Loadings of school intervention/mitigation measure variables onto principal comp
       stopifnot(is(pca) == 'prcomp')
       signif(pca$sdev^2 / sum(pca$sdev^2) * 100, digits = digits)
   }
- 
+  
+  pca_variance<-getPcaVars(pca)
   pca_table<-pca$rot[,1:9]
   colnames(pca_table)<-paste(colnames(pca_table), " (", pca_variance[1:9], "%", ")", sep="")
   rownames(pca_table)<-c("student masking", "teacher masking", "same teacher", "same students", 
@@ -2066,6 +2132,6 @@ Selected behaviors relevant to COVID-19 acquisition/transmission among participa
 ```
 
 
-## Table S12: see `EducatorAnalysis.Rmd`
+## Table S12: see `2-EducatorAnalysis.Rmd`
 
 

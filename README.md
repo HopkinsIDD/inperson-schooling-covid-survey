@@ -6,6 +6,6 @@ Code is provided to reproduce the primary in-person schooling (`1-Primary-School
 
 Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io).
 
-Preprint: (Household COVID-19 risk and in-person schooling)[https://www.medrxiv.org/content/10.1101/2021.02.27.21252597v1]
+Preprint: [Household COVID-19 risk and in-person schooling](https://www.medrxiv.org/content/10.1101/2021.02.27.21252597v1)
 
 Please reach out to justin[at]jhu.edu if you have any questions.
