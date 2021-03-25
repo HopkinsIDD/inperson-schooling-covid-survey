@@ -3,6 +3,19 @@ output: html_document
 ---
 
 
+## Source Code for _Household COVID-19 risk and In-person schooling_ 
+#### Justin Lessler, M. Kate Grabowski, Kyra H. Grantz, Elena Badillo-Goicoechea, C. Jessica E. Metcalf, Carly Lupton-Smith, Andrew S. Azman, Elizabeth A. Stuart
+ _________
+ 
+Code is provided to reproduce the primary in-person schooling (`1-Primary-Schooling-Analysis.Rmd`) and occupation/work outside home (`2-Educator-Analysis.Rmd`) analyses using a synthetic dataset. Hence, results produced when knitting these documents will **not** match those presented in the accompanying paper. 
+
+Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io).
+
+Preprint: [Household COVID-19 risk and in-person schooling](https://www.medrxiv.org/content/10.1101/2021.02.27.21252597v1)
+
+Please reach out to justin[at]jhu.edu if you have any questions.
+
+
 ```{r setup, include=FALSE}
   knitr::opts_chunk$set(echo=FALSE, message = FALSE, warning = FALSE, error=TRUE)
 
@@ -31,7 +44,7 @@ output: html_document
 
 ```{r warning-message}
 
-  knitr::knit_exit("WARNING: This document will prepare tables and figures exploring the effects of occupation and work outside the home using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).")
+  knitr::knit_exit("**WARNING: This document will prepare tables and figures exploring the effects of occupation and work outside the home using a synthetic dataset. Hence, results produced when knitting this document will not match those presented in the accompanying paper. Data to reproduce paper figures/tables are freely available from the CMU Delphi Research Group to researchers at universities and non-profits as detailed at Getting Data Access - Delphi Epidata API (cmu-delphi.github.io). To proceed with running this document with the synthetic dataset, please comment out or delete this line (ln 34 in the RMD).**")
 
 ```
 
@@ -64,7 +77,8 @@ output: html_document
   ##Make and occupation K12Educator
   df_ws <- df_ws%>%
     mutate(OccEdRecode = OccupationRed,
-           OccEdRecode = ifelse(OccEdRecode!="Education", as.character(OccEdRecode),
+           OccEdRecode = ifelse(OccEdRecode!="Education", 
+                                as.character(OccEdRecode),
                                 ifelse(educationjob_type%in%
                                          c("elemid_teacher",
                                            "preKteacher",
@@ -72,10 +86,15 @@ output: html_document
                                        "K12Teacher","OtherEductation")))
   
   
-  ##Just to simplify the analysis, lets make anything with less than 
-  ##50,000 folks other
-  df_ws <- df_ws%>%group_by(OccEdRecode)%>%
-    mutate(OccEdRecode = ifelse(n()<50000, "Other", OccEdRecode))%>%
+  ## Just to simplify the analysis, lets group small categories into 'Other'
+  ## NOTE: in paper, threshold used to decide grouping was n<50,000
+  other_cats <- c("Installation, maintenance, and repair", "Cleaning and maintenance",
+                  "Arts/entertainment", "Comm/social service", "Production",
+                  "Personal care and service", "Construction and extraction",
+                  "Transportation and material moving/delivery", "Protective service")
+  df_ws <- df_ws%>%
+    group_by(OccEdRecode)%>%
+    mutate(OccEdRecode = ifelse(OccEdRecode %in% other_cats, "Other", OccEdRecode))%>%
     ungroup()
   
   ##Make factor with Office and admin support as the
