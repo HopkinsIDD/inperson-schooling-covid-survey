@@ -53,6 +53,7 @@ survey_reg <- function(data, formula, wts=data$weight, ...) {
   
   rc <- svyglm(formula, design=svy_d, family=quasibinomial,...)
   
+  
   return(rc)
 }
 
@@ -66,10 +67,12 @@ survey_reg <- function(data, formula, wts=data$weight, ...) {
 ##' @param as_df should the outcome be a data frame.
 ##' @param cnty_cov include county level covariates other than AR
 ##' @param n_mit include number of mitigatoin measures
+##' @param state include state as a coviariate
 ##' 
 ##' @return a series for regrsion summary tables or no
 pos_regs <- function(data, outcome="tst", as_df=FALSE,
-                     cnty_cov = TRUE, n_mit=FALSE) {
+                     cnty_cov = TRUE, n_mit=FALSE,
+                     state=FALSE) {
   
   rc <- list()
   
@@ -115,68 +118,140 @@ pos_regs <- function(data, outcome="tst", as_df=FALSE,
   
 
   ##Full adjustment
-  if (cnty_cov) {
-    if (n_mit) {
-      reg_ip_adjfull<- data%>%
-        survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
-                     rel_avg_biwk_AR+
-                     IsMale+Age+OccupationRed+
-                     Educational_Level+
-                     HH_sz+num_kid_recode+
-                     mask_level+trav_out_state+
-                     bar_rest_cafe_activ +
-                     large_event_activ+
-                     pub_transit_activ +
-                     Population+
-                     White+
-                     GINI+
-                     Poverty+
-                     Description+
-                     n_interventions
-                   )   
+  if (state) {
+    if (cnty_cov) {
+      if (n_mit) {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       State+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description+
+                       n_interventions
+          )   
+      } else {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       State+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description
+          )   
+      }
     } else {
-      reg_ip_adjfull<- data%>%
-        survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
-                     rel_avg_biwk_AR+
-                     IsMale+Age+OccupationRed+
-                     Educational_Level+
-                     HH_sz+num_kid_recode+
-                     mask_level+trav_out_state+
-                     bar_rest_cafe_activ +
-                     large_event_activ+
-                     pub_transit_activ +
-                     Population+
-                     White+
-                     GINI+
-                     Poverty+
-                     Description
-                   )   
+      if (n_mit) {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       State+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       n_interventions
+          )
+      } else {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       State+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ)
+      }
     }
+    
   } else {
-    if (n_mit) {
-      reg_ip_adjfull<- data%>%
-        survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
-                     rel_avg_biwk_AR+
-                     IsMale+Age+OccupationRed+
-                     Educational_Level+
-                     HH_sz+num_kid_recode+
-                     mask_level+trav_out_state+
-                     bar_rest_cafe_activ +
-                     large_event_activ+
-                     pub_transit_activ +
-                     n_interventions
-                   )
+    if (cnty_cov) {
+      if (n_mit) {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description+
+                       n_interventions
+          )   
+      } else {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       Population+
+                       White+
+                       GINI+
+                       Poverty+
+                       Description
+          )   
+      }
     } else {
-      reg_ip_adjfull<- data%>%
-        survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
-                     rel_avg_biwk_AR+
-                     IsMale+Age+OccupationRed+
-                     Educational_Level+
-                     HH_sz+num_kid_recode+
-                     mask_level+trav_out_state+
-                     bar_rest_cafe_activ +
-                     large_event_activ+
-                     pub_transit_activ)
+      if (n_mit) {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ +
+                       n_interventions
+          )
+      } else {
+        reg_ip_adjfull<- data%>%
+          survey_reg(pos~Child_IP_full_bin+Child_IP_part_bin+
+                       rel_avg_biwk_AR+
+                       IsMale+Age+OccupationRed+
+                       Educational_Level+
+                       HH_sz+num_kid_recode+
+                       mask_level+trav_out_state+
+                       bar_rest_cafe_activ +
+                       large_event_activ+
+                       pub_transit_activ)
+      }
     }
   }
   
@@ -227,7 +302,8 @@ prop_to_inhome_df <- function (df) {
             White, Black, GINI, BBInternet.HH,
             PopPerSqMile, Poverty, NoHealthIns,
             Employed.Essential, Computer.HH,
-            Description, UrbanRural
+            Description, UrbanRural,
+            Educational_Level
     )
   
   return(df)
@@ -239,6 +315,7 @@ prop_to_inhome_model <- function (df) {
   
   mdl <- ranger::ranger(no_ip~State+ OccupationRed+ IsMale+
                           Age+ Employed+ num_kid_recode+ HH_sz +
+                          Educational_Level+
                           mask_level+
                           trav_out_state+ 
                           bar_rest_cafe_activ+
@@ -268,6 +345,108 @@ prop_to_inhome <- function (df) {
     return(rc)
 }
 
+
+
+prop_to_n_ints_model <- function (df) {
+  
+  df <- prop_to_inhome_df(df)
+  
+  mdl <- ranger::ranger(n_interventions~State+ OccupationRed+ IsMale+
+                          Age+ Employed+ num_kid_recode+ HH_sz +
+                          Educational_Level+
+                          mask_level+
+                          trav_out_state+ 
+                          bar_rest_cafe_activ+
+                          large_event_activ+
+                          pub_transit_activ+
+                          ext_person_activ+
+                          mkt_grocery_pharm_activ+
+                          work_outside_activ+
+                          Pre_K+ Grades_15+
+                          Grades_68+ Grades_912+
+                          rel_avg_biwk_AR+ population+
+                          White+ Black+ GINI+ BBInternet.HH+
+                          PopPerSqMile+ Poverty+ NoHealthIns+
+                          Employed.Essential+ Computer.HH+
+                          Description+ UrbanRural,
+                        data=df,
+                        importance = "impurity")
+  return(mdl)
+}
+
+
+
+prop_to_n_ints_model_indiv <- function (df) {
+  
+  df <- prop_to_inhome_df(df)
+  
+  mdl <- ranger::ranger(n_interventions~ OccupationRed+ IsMale+
+                          Age+ Employed+ num_kid_recode+ HH_sz +
+                          Educational_Level+
+                          mask_level+
+                          trav_out_state+ 
+                          bar_rest_cafe_activ+
+                          large_event_activ+
+                          pub_transit_activ+
+                          ext_person_activ+
+                          mkt_grocery_pharm_activ+
+                          work_outside_activ+
+                          Pre_K+ Grades_15+
+                          Grades_68+ Grades_912,
+                        data=df,
+                        importance = "impurity")
+  return(mdl)
+}
+
+
+prop_to_n_ints_model_geo <- function (df) {
+  
+  df <- prop_to_inhome_df(df)
+  
+  mdl <- ranger::ranger(n_interventions~State+ population+
+                          White+ Black+ GINI+ BBInternet.HH+
+                          PopPerSqMile+ Poverty+ NoHealthIns+
+                          Employed.Essential+ Computer.HH+
+                          Description+ UrbanRural,
+                        data=df,
+                        importance = "impurity")
+  return(mdl)
+}
+
+
+
+
+prop_to_n_ints <- function (df,inperson_df) {
+  df <-  prop_to_inhome_df(df)
+  inperson_df <- prop_to_inhome_df(inperson_df)
+  mdl <- prop_to_n_ints_model(inperson_df)
+  rc<- predict(mdl,df)
+  rc<- df%>%mutate(prop_n_ints=rc$predictions)
+  return(rc)
+}
+
+prop_to_n_ints_geo <- function (df,inperson_df) {
+  df <-  prop_to_inhome_df(df)
+  inperson_df <- prop_to_inhome_df(inperson_df)
+  mdl <- prop_to_n_ints_model_geo(inperson_df)
+  rc<- predict(mdl,df)
+  rc<- df%>%mutate(prop_n_ints_geo=rc$predictions)
+  return(rc)
+}
+
+prop_to_n_ints_indiv <- function (df,inperson_df) {
+  df <-  prop_to_inhome_df(df)
+  inperson_df <- prop_to_inhome_df(inperson_df)
+  mdl <- prop_to_n_ints_model_indiv(inperson_df)
+  rc<- predict(mdl,df)
+  rc<- df%>%mutate(prop_n_ints_indiv=rc$predictions)
+  return(rc)
+}
+
+
+
+##' Function to calculate the propensity for numebr of 
+##' interventions. 
 
 
 ##' Function to do a standard recode of all of the data.

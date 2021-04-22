@@ -670,10 +670,95 @@ fig_3 <- function(inperson_df, reg_tbl, line_at = NA) {
 }
 
 
+fig_4 <- function(inperson_df, mit_reg_tbl){
+   
+   mit_reg_plt <- mit_reg_tbl%>%
+      filter(variable%in%c("ft_cat","pt_cat"),
+             label!="ft_cat",
+             label!="pt_cat",
+             label!="None")%>%
+      mutate(
+         label=str_sub(label,start=6),
+         label=factor(label, levels=c("[0,1)",
+                                      "[1,4)",
+                                      "[4,7)",
+                                      "[7,10)",
+                                      "[10,14)"),
+                      labels = c("0","1-3","4-6","7-9","10+")))%>%
+      ggplot(aes(x=label, y=estimate, 
+                 ymin=conf.low, ymax=conf.high,
+                 color=outcome))+
+      geom_pointrange(position=position_dodge(width=.5))+
+      facet_grid(cols=vars(variable))+
+      geom_hline(yintercept=1)+
+      xlab("N mitigation ,easures")+
+      ylab("odds ratio")+
+      scale_y_log10()+
+      scale_color_brewer(name="",type="qual", palette = "Dark2")+
+      theme_bw()+
+      theme(legend.position="top")
+   
+   
+   mk_donut_dat <- function(data, strata) {
+      data%>%
+         summarize_at(vars(matches("sch_")),mean, na.rm=T)%>%
+         select(-sch_Unk)%>%
+         pivot_longer(everything(), values_to = "yes")%>%
+         mutate(no=yes)%>%
+         pivot_longer(-name, names_to="cat")%>%
+         mutate(ymin=ifelse(cat=="yes",0,value),
+                ymax=ifelse(cat=="yes",value,1),
+                name=factor(str_remove(name,"sch_"),
+                            levels=sch_order),
+                strata=strata)
+   }
+   to_plt <- inperson_df%>%
+      filter(n_interventions>=1 & n_interventions<=3)%>%
+      mk_donut_dat("1-3")
+   to_plt <- inperson_df%>%
+      filter(n_interventions>=4 & n_interventions<=6)%>%
+      mk_donut_dat("4-6")%>%
+      bind_rows(to_plt)
+   to_plt <- inperson_df%>%
+      filter(n_interventions>=7 & n_interventions<=9)%>%
+      mk_donut_dat("7-9")%>%
+      bind_rows(to_plt)
+   to_plt <- inperson_df%>%
+      filter(n_interventions>=10)%>%
+      mk_donut_dat("10+")%>%
+      bind_rows(to_plt)
+   
+   donut_fig <- to_plt%>%
+      mutate(strata=factor(strata,levels=c("1-3","4-6","7-9","10+")))%>%
+      ggplot(aes(ymin=ymin, ymax=ymax, xmax=4, xmin=3, fill=cat))+
+      geom_rect()+
+      coord_polar(theta="y") + 
+      xlim(c(0, 4))+
+      theme_void() +
+      scale_fill_manual(values=c("#EEEEEE", "#24803C"))+
+      geom_text(aes(label=sprintf("%1.0f%%",value*100)), x=0, y=0,
+                size=2.5)+
+      facet_grid(rows=vars(strata), cols=vars(name),
+                 labeller=labeller(name=sch_names),
+                 switch="both") +
+      theme(legend.position = "none",
+            strip.text.x = element_text(angle=90, size=10, hjust=1),
+            strip.text.y = element_text(face="bold",size=10, angle=45))
+   
+   rc <- cowplot::plot_grid(mit_reg_plt, donut_fig, ncol = 1,
+                            labels = c("A","B"), 
+                            rel_heights=c(1,1.3))
+   
+   return(rc)
+   
+}
+
+
+
 ##' Figure  4. Looking at the impact of IP schooling stratified by
 ##' number of interventions, and the individual impact of interventions
 ##' 
-fig_4 <- function(inperson_df, mit_strata){
+fig_4_old <- function(inperson_df, mit_strata){
 
    mit_strata_fig <-mit_strata%>%
       filter(str_detect(variable, "Child_"))%>%
